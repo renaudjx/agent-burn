@@ -434,6 +434,12 @@ private struct ActivityChart: View {
     let today = Calendar(identifier: .gregorian).startOfDay(for: .now)
     return today...today
   }
+  /// The plotted range widened to whole buckets, so a partial month or week keeps its bar inside the card.
+  private var chartDomain: ClosedRange<Date> {
+    let lower = min(scale.lowerBound, buckets.map(\.date).min() ?? scale.lowerBound)
+    let upper = max(scale.upperBound, buckets.map(\.end).max() ?? scale.upperBound)
+    return lower...upper
+  }
   private var spanDays: Int { spendSpanDays(lower: scale.lowerBound, upper: scale.upperBound) }
   private var effective: SpendGranularity {
     granularityOverride ?? spendGranularityAuto(spanDays: spanDays)
@@ -569,7 +575,7 @@ private struct ActivityChart: View {
       }
       .animation(.easeOut(duration: 0.15), value: selectedBucket?.usage.id)
       .chartXSelection(value: $selected)
-      .chartXScale(domain: scale)
+      .chartXScale(domain: chartDomain)
       .chartYAxis {
         AxisMarks(position: .leading) { _ in
           AxisGridLine()
