@@ -54,6 +54,9 @@ final class UsageStore {
   }
   var customPath: String { didSet { defaults.set(customPath, forKey: "cliPath") } }
   var codexHomes: String { didSet { defaults.set(codexHomes, forKey: "codexHomes") } }
+  var claudeConfigDirs: String {
+    didSet { defaults.set(claudeConfigDirs, forKey: "claudeConfigDirs") }
+  }
   var offline: Bool { didSet { defaults.set(offline, forKey: "offline") } }
   var refreshMinutes: Int { didSet { defaults.set(refreshMinutes, forKey: "refreshMinutes") } }
   var quotaSource: QuotaSource {
@@ -65,7 +68,8 @@ final class UsageStore {
   var cursorQuotaChartRange = QuotaChartRange.rtd
   private var history: [String: [QuotaSample]] = [:]
   private var quotaHistory = QuotaHistory()
-  private var quotaSourceKey: String { customPath + "|" + codexHomes }
+  private var claudeSourceKey: String { claudeConfigDirs.isEmpty ? "" : "|claude=" + claudeConfigDirs }
+  private var quotaSourceKey: String { customPath + "|" + codexHomes + claudeSourceKey }
   private var quotaFileDate: Date?
   private var configuredQuotaSource: String?
   private var collectedQuotaSource: String?
@@ -91,7 +95,12 @@ final class UsageStore {
       (summary?.agents.map(\.agent) ?? []) + (cache?.agentNames ?? []) + Array(archive.agents.keys)
     ).sorted()
   }
-  private var sourceKey: String { customPath + "|" + codexHomes + "|" + String(offline) }
+  private var sourceKey: String {
+    customPath + "|" + codexHomes + claudeSourceKey + "|" + String(offline)
+  }
+  private var cliEnvironment: [String: String] {
+    CLIClient.environment(codexHomes: codexHomes, claudeConfigDirs: claudeConfigDirs)
+  }
   private var started = false
 
   init(defaults: UserDefaults = .standard, period: UsagePeriod = .all, storageDirectory: URL? = nil)
@@ -104,6 +113,10 @@ final class UsageStore {
       ?? SourcePaths.codexHomes(
         home: FileManager.default.homeDirectoryForCurrentUser.path,
         inherited: ProcessInfo.processInfo.environment["CODEX_HOME"])
+    claudeConfigDirs =
+      defaults.string(forKey: "claudeConfigDirs")
+      ?? SourcePaths.claudeConfigDirs(
+        inherited: ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"])
     offline = defaults.bool(forKey: "offline")
     refreshMinutes = max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
@@ -117,6 +130,7 @@ final class UsageStore {
       .appendingPathComponent("quota-history.json")
     cacheURL = historyURL.deletingLastPathComponent().appendingPathComponent("report-cache.json")
     defaults.set(codexHomes, forKey: "codexHomes")
+    defaults.set(claudeConfigDirs, forKey: "claudeConfigDirs")
     if let data = try? Data(contentsOf: historyURL),
       let decoded = try? JSONDecoder().decode([String: [QuotaSample]].self, from: data)
     {
@@ -194,7 +208,8 @@ final class UsageStore {
   private func configureQuotaCollector() {
     guard configuredQuotaSource != quotaSourceKey else { return }
     do {
-      try QuotaCollectorConfig(customPath: customPath, codexHomes: codexHomes)
+      try QuotaCollectorConfig(
+        customPath: customPath, codexHomes: codexHomes, claudeConfigDirs: claudeConfigDirs)
         .save(directory: cacheURL.deletingLastPathComponent())
       configuredQuotaSource = quotaSourceKey
       errors["quotaConfig"] = nil
@@ -394,7 +409,7 @@ final class UsageStore {
       let executable = try CLIClient.executable(customPath: customPath)
       let report = try await CLIClient.read(
         SummaryReport.self, executable: executable,
-        arguments: query.arguments, offline: offline, environment: ["CODEX_HOME": codexHomes])
+        arguments: query.arguments, offline: offline, environment: cliEnvironment)
       guard source == sourceKey else { return }
       cache?.summaries[query.cacheKey] = CachedReport(report: report, date: .now)
       saveCache()
@@ -423,7 +438,7 @@ final class UsageStore {
       let source = sourceKey
       let report = try await CLIClient.read(
         HarnessReport.self, executable: executable,
-        arguments: ["harness", agent], offline: offline, environment: ["CODEX_HOME": codexHomes])
+        arguments: ["harness", agent], offline: offline, environment: cliEnvironment)
       guard source == sourceKey else { return }
       let date = Date.now
       cache?.harnesses[agent] = CachedReport(report: report, date: date)

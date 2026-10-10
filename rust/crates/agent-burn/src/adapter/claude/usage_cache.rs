@@ -2,6 +2,7 @@ use std::{env, fs, path::PathBuf};
 
 use serde_json::{Value, json};
 
+use super::profile::Profile;
 use crate::{TimestampMs, home};
 
 /// Anthropic's OAuth usage endpoint answers 429 when polled by several
@@ -152,12 +153,20 @@ fn backoff_ms(retry_after_seconds: Option<i64>) -> i64 {
         .clamp(MIN_BACKOFF_MS, MAX_BACKOFF_MS)
 }
 
+/// One cache file per profile: two logins must never serve each other's reading.
+fn file_name() -> String {
+    match Profile::current().and_then(|profile| profile.id()) {
+        Some(id) => format!("claude-usage-{id}.json"),
+        None => "claude-usage.json".to_string(),
+    }
+}
+
 fn path() -> Option<PathBuf> {
     if cfg!(test) {
         return None;
     }
     if let Some(dir) = env::var_os("AGENT_BURN_CACHE_DIR") {
-        return Some(PathBuf::from(dir).join("claude-usage.json"));
+        return Some(PathBuf::from(dir).join(file_name()));
     }
     let home = home::home_dir()?;
     #[cfg(target_os = "macos")]
@@ -167,7 +176,7 @@ fn path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".cache"))
         .join("agent-burn");
-    Some(base.join("claude-usage.json"))
+    Some(base.join(file_name()))
 }
 
 #[cfg(test)]

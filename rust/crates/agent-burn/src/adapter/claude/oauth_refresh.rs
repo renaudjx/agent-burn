@@ -2,7 +2,8 @@
 //! 2.1 uses, so a refresh by Agent Burn and one by a `claude` session never
 //! burn the single-use refresh token twice:
 //!
-//! 1. hold `~/.claude/.oauth_refresh.lock` and the legacy `~/.claude.lock`
+//! 1. hold `<config dir>/.oauth_refresh.lock` and the legacy `<config dir>.lock`
+//!    (`~/.claude` unless `CLAUDE_CONFIG_DIR` names another profile)
 //!    (proper-lockfile directories, stale after 60 seconds);
 //! 2. re-read the stored sign-in and adopt it when someone else renewed it;
 //! 3. post the refresh token, then write back only when the stored refresh
@@ -18,7 +19,8 @@ use std::{
 use serde_json::{Value, json};
 
 use super::credentials::{Credentials, OAuthToken, RefreshedToken};
-use crate::{TimestampMs, home, utc_now};
+use super::profile::Profile;
+use crate::{TimestampMs, utc_now};
 
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -162,7 +164,7 @@ struct RefreshLock(Vec<PathBuf>);
 
 impl RefreshLock {
     fn acquire() -> Option<Self> {
-        let dir = home::home_dir()?.join(".claude");
+        let dir = Profile::current()?.dir().to_path_buf();
         let current = dir.join(".oauth_refresh.lock");
         let legacy = PathBuf::from(format!(
             "{}.lock",

@@ -44,7 +44,7 @@ pub(crate) fn claude_paths() -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn normalize_claude_config_path(raw: &str) -> PathBuf {
+pub(super) fn normalize_claude_config_path(raw: &str) -> PathBuf {
     let path = expand_home_path(raw);
     if path.file_name().is_some_and(|name| name == "projects") && path.is_dir() {
         return path.parent().map(Path::to_path_buf).unwrap_or(path);

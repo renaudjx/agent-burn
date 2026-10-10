@@ -43,6 +43,13 @@ enum CLIClient {
     return URL(fileURLWithPath: path)
   }
 
+  /// The environment the CLI needs to find the configured logs and sign-ins.
+  static func environment(codexHomes: String, claudeConfigDirs: String) -> [String: String] {
+    var environment = ["CODEX_HOME": codexHomes]
+    if !claudeConfigDirs.isEmpty { environment["CLAUDE_CONFIG_DIR"] = claudeConfigDirs }
+    return environment
+  }
+
   static func read<T: Decodable & Sendable>(
     _ type: T.Type, executable: URL, arguments: [String], offline: Bool,
     environment: [String: String] = [:], timeout: TimeInterval = 120

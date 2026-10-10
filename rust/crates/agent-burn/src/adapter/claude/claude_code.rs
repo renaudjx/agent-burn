@@ -2,12 +2,13 @@ use std::fs;
 
 use serde_json::Value;
 
-use crate::{TimestampMs, home};
+use super::profile::Profile;
+use crate::TimestampMs;
 
 /// The usage body Claude Code itself cached in `~/.claude.json`, with when
 /// Anthropic returned it. Ignored when it belongs to another signed-in account.
 pub(super) fn cached_usage() -> Option<(String, TimestampMs)> {
-    let path = home::home_dir()?.join(".claude.json");
+    let path = Profile::current()?.state_file()?;
     cached_usage_from(&fs::read_to_string(path).ok()?)
 }
 

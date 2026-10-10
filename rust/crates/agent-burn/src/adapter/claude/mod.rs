@@ -5,6 +5,7 @@ mod limits;
 mod oauth_refresh;
 mod paths;
 mod plan;
+mod profile;
 mod usage_cache;
 
 pub(crate) use limits::{live_usage_limits, load_account, usage_limits};

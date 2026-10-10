@@ -20,6 +20,20 @@ enum SourcePaths {
     }
     return paths.joined(separator: ",")
   }
+
+  /// Claude Code profile folders. Unlike Codex, nothing is added to the list and symlinks are not
+  /// resolved: Claude Code names a profile's Keychain item after the folder exactly as launched.
+  static func claudeConfigDirs(inherited: String?) -> String {
+    var paths: [String] = []
+    for candidate in (inherited ?? "").split(separator: ",") {
+      let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { continue }
+      let path = URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
+        .standardizedFileURL.path
+      if !paths.contains(path) { paths.append(path) }
+    }
+    return paths.joined(separator: ",")
+  }
 }
 
 struct CachedReport<Report: Codable>: Codable {

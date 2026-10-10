@@ -2,10 +2,9 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::{TimestampMs, home};
+use super::profile::Profile;
+use crate::TimestampMs;
 
-#[cfg(target_os = "macos")]
-const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 /// Claude Code refreshes a token this long before it expires.
 const EXPIRY_MARGIN_MS: i64 = 5 * 60_000;
 
@@ -52,6 +51,7 @@ pub(super) struct Credentials {
 enum Store {
     #[cfg(target_os = "macos")]
     Keychain {
+        service: String,
         account: String,
     },
     File(PathBuf),
@@ -59,11 +59,12 @@ enum Store {
 
 impl Credentials {
     pub(super) fn load() -> Option<Self> {
+        let profile = Profile::current()?;
         #[cfg(target_os = "macos")]
-        if let Some(credentials) = keychain() {
+        if let Some(credentials) = keychain(&profile) {
             return Some(credentials);
         }
-        let path = credentials_file()?;
+        let path = profile.credentials_file();
         Some(Self {
             raw: parse(&fs::read_to_string(&path).ok()?)?,
             store: Store::File(path),
@@ -91,7 +92,7 @@ impl Credentials {
         let text = updated.to_string();
         match &self.store {
             #[cfg(target_os = "macos")]
-            Store::Keychain { account } => write_keychain(account, &text),
+            Store::Keychain { service, account } => write_keychain(service, account, &text),
             Store::File(path) => write_file(path, &text),
         }
     }
@@ -152,10 +153,6 @@ fn merge(raw: &Value, refreshed: &RefreshedToken) -> Option<Value> {
     Some(updated)
 }
 
-fn credentials_file() -> Option<PathBuf> {
-    Some(home::home_dir()?.join(".claude").join(".credentials.json"))
-}
-
 fn write_file(path: &PathBuf, text: &str) -> bool {
     let temp = path.with_extension(format!("json.{}", std::process::id()));
     if fs::write(&temp, text).is_err() {
@@ -174,17 +171,25 @@ fn write_file(path: &PathBuf, text: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn keychain() -> Option<Credentials> {
+fn keychain(profile: &Profile) -> Option<Credentials> {
+    profile
+        .keychain_services()
+        .into_iter()
+        .find_map(|service| keychain_item(&service))
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_item(service: &str) -> Option<Credentials> {
     use std::process::Command;
 
     let secret = Command::new("security")
-        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"])
+        .args(["find-generic-password", "-s", service, "-w"])
         .output()
         .ok()
         .filter(|output| output.status.success())?;
     let raw = parse(&String::from_utf8(secret.stdout).ok()?)?;
     let attributes = Command::new("security")
-        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE])
+        .args(["find-generic-password", "-s", service])
         .output()
         .ok();
     let account = attributes
@@ -193,7 +198,10 @@ fn keychain() -> Option<Credentials> {
         .or_else(|| std::env::var("USER").ok())?;
     Some(Credentials {
         raw,
-        store: Store::Keychain { account },
+        store: Store::Keychain {
+            service: service.to_string(),
+            account,
+        },
     })
 }
 
@@ -209,7 +217,7 @@ fn keychain_account(attributes: &str) -> Option<String> {
 /// `security -i` reads the command from stdin, so the secret never appears
 /// in the process list. `-X` takes the payload as hex, like Claude Code.
 #[cfg(target_os = "macos")]
-fn write_keychain(account: &str, text: &str) -> bool {
+fn write_keychain(service: &str, account: &str, text: &str) -> bool {
     use std::{
         io::Write,
         process::{Command, Stdio},
@@ -219,9 +227,8 @@ fn write_keychain(account: &str, text: &str) -> bool {
         .bytes()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let command = format!(
-        "add-generic-password -U -a \"{account}\" -s \"{KEYCHAIN_SERVICE}\" -X \"{hex}\"\n"
-    );
+    let command =
+        format!("add-generic-password -U -a \"{account}\" -s \"{service}\" -X \"{hex}\"\n");
     let Ok(mut child) = Command::new("security")
         .arg("-i")
         .stdin(Stdio::piped())

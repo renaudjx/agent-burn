@@ -434,6 +434,12 @@ private struct DataSettings: View {
           "Comma-separated Codex folders. The normal ~/.codex folder is included alongside the launching profile. Sessions and archived sessions are read by the CLI."
         )
         .font(.caption).foregroundStyle(.secondary)
+        TextField("Claude config dirs", text: $store.claudeConfigDirs, axis: .vertical)
+          .lineLimit(2...4).font(.system(.caption, design: .monospaced))
+        Text(
+          "Comma-separated Claude Code profile folders, for example ~/.claude-work,~/.claude-personal. Leave empty for the default ~/.claude. Usage is merged from every folder; the sign-in and limits come from the first one."
+        )
+        .font(.caption).foregroundStyle(.secondary)
       }
       Section("Refresh") {
         Picker("Automatically refresh", selection: $store.refreshMinutes) {

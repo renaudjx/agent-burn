@@ -4,7 +4,11 @@ import Foundation
 struct QuotaCollectorConfig: Codable, Sendable {
   let customPath: String
   let codexHomes: String
-  var source: String { customPath + "|" + codexHomes }
+  var claudeConfigDirs: String? = nil
+  var source: String {
+    customPath + "|" + codexHomes
+      + (claudeConfigDirs.flatMap { $0.isEmpty ? nil : "|claude=" + $0 } ?? "")
+  }
   static var directory: URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Application Support/Agent Burn")
@@ -59,7 +63,9 @@ enum QuotaCollector {
     defer { flock(descriptor, LOCK_UN) }
     let file = QuotaHistoryFile(directory: directory)
     _ = try file.load()
-    let environment = ["CODEX_HOME": config.codexHomes, "AGENT_BURN_QUOTA_ONLY": "1"].merging(
+    let environment = CLIClient.environment(
+      codexHomes: config.codexHomes, claudeConfigDirs: config.claudeConfigDirs ?? ""
+    ).merging(["AGENT_BURN_QUOTA_ONLY": "1"]) { $1 }.merging(
       force ? ["AGENT_BURN_FORCE_REFRESH": "1"] : [:]
     ) { $1 }
     var saveError: Error?
