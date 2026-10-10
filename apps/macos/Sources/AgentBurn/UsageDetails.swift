@@ -238,6 +238,17 @@ struct DailySpendChart: View {
     let today = Calendar(identifier: .gregorian).startOfDay(for: .now)
     return today...today
   }
+  /// The plotted range widened to whole buckets, so a partial week or month keeps its bar inside the card.
+  private var chartDomain: ClosedRange<Date> {
+    let lower = min(scale.lowerBound, buckets.map(\.date).min() ?? scale.lowerBound)
+    let upper = max(scale.upperBound, buckets.map(\.end).max() ?? scale.upperBound)
+    // A couple of coarse buckets would otherwise fill the whole card as one slab.
+    guard effective != .daily, buckets.count < 4, let first = buckets.first else {
+      return lower...upper
+    }
+    let pad = first.end.timeIntervalSince(first.date)
+    return lower.addingTimeInterval(-pad)...upper.addingTimeInterval(pad)
+  }
   private var spanDays: Int { spendSpanDays(lower: scale.lowerBound, upper: scale.upperBound) }
   private var effective: SpendGranularity {
     guard showsGranularity else { return .daily }
@@ -298,7 +309,7 @@ struct DailySpendChart: View {
         }
       }
       .chartXSelection(value: $selected)
-      .chartXScale(domain: scale)
+      .chartXScale(domain: chartDomain)
       .chartYAxis {
         AxisMarks(position: .leading) { _ in
           AxisGridLine().foregroundStyle(BurnTheme.line)

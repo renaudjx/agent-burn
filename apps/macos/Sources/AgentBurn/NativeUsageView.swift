@@ -438,7 +438,12 @@ private struct ActivityChart: View {
   private var chartDomain: ClosedRange<Date> {
     let lower = min(scale.lowerBound, buckets.map(\.date).min() ?? scale.lowerBound)
     let upper = max(scale.upperBound, buckets.map(\.end).max() ?? scale.upperBound)
-    return lower...upper
+    // A couple of coarse buckets would otherwise fill the whole card as one slab.
+    guard effective != .daily, buckets.count < 4, let first = buckets.first else {
+      return lower...upper
+    }
+    let pad = first.end.timeIntervalSince(first.date)
+    return lower.addingTimeInterval(-pad)...upper.addingTimeInterval(pad)
   }
   private var spanDays: Int { spendSpanDays(lower: scale.lowerBound, upper: scale.upperBound) }
   private var effective: SpendGranularity {
