@@ -437,7 +437,7 @@ private struct DataSettings: View {
         TextField("Claude config dirs", text: $store.claudeConfigDirs, axis: .vertical)
           .lineLimit(2...4).font(.system(.caption, design: .monospaced))
         Text(
-          "Comma-separated Claude Code profile folders, for example ~/.claude-work,~/.claude-personal. Leave empty for the default ~/.claude. Usage is merged from every folder; the sign-in and limits come from the first one."
+          "Comma-separated Claude Code profile folders, for example /Users/me/.claude-work, /Users/me/.claude-personal. Leave empty for the default folder in your home. Usage is merged from every folder; the sign-in and limits come from the first one."
         )
         .font(.caption).foregroundStyle(.secondary)
       }

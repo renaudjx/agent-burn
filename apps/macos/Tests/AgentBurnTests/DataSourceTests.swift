@@ -85,3 +85,13 @@ import Testing
     ], harnesses: [:])
   #expect(cache.agentNames == ["opencode"])
 }
+
+@Test func activeClaudeProfileIsReadFirstWithoutDroppingTheOthers() {
+  let configured = "/home/a/.claude-1, /home/a/.claude-2,/home/a/.claude-1"
+  #expect(ClaudeProfile.list(configured).map(\.path) == ["/home/a/.claude-1", "/home/a/.claude-2"])
+  #expect(
+    ClaudeProfile.ordered(configured, active: "/home/a/.claude-2")
+      == "/home/a/.claude-2,/home/a/.claude-1")
+  #expect(ClaudeProfile.ordered(configured, active: "") == configured)
+  #expect(ClaudeProfile.ordered(configured, active: "/elsewhere") == configured)
+}

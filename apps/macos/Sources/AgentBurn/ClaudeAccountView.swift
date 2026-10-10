@@ -82,6 +82,7 @@ struct ClaudeAccountView: View {
         tint: tint
       ) {
         HStack(spacing: 12) {
+          profilePicker
           if let price = plan?.pricePerMonth {
             Text(currency(price) + " / month").monospacedDigit()
           }
@@ -120,6 +121,21 @@ struct ClaudeAccountView: View {
       }
     }
     .burnCard(padding: 18)
+  }
+
+  /// Which Claude Code profile's account and limits are shown; usage still covers every folder.
+  @ViewBuilder private var profilePicker: some View {
+    let profiles = store.claudeProfiles
+    if profiles.count > 1 {
+      let selection = Binding(
+        get: { profiles.contains { $0.path == store.claudeActiveDir } ? store.claudeActiveDir : profiles[0].path },
+        set: { store.claudeActiveDir = $0 })
+      Picker("Profile", selection: selection) {
+        ForEach(profiles) { Text($0.name).tag($0.path) }
+      }
+      .pickerStyle(.menu).labelsHidden().fixedSize()
+      .help("Claude Code profile whose account and limits are shown")
+    }
   }
 
   private func freshness(_ forecast: Forecast) -> some View {

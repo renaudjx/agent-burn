@@ -57,6 +57,19 @@ final class UsageStore {
   var claudeConfigDirs: String {
     didSet { defaults.set(claudeConfigDirs, forKey: "claudeConfigDirs") }
   }
+  /// The listed profile whose sign-in and limits are shown; usage always merges every folder.
+  var claudeActiveDir: String {
+    didSet {
+      guard oldValue != claudeActiveDir else { return }
+      defaults.set(claudeActiveDir, forKey: "claudeActiveDir")
+      storedClaudeAccount = nil
+    }
+  }
+  var claudeProfiles: [ClaudeProfile] { ClaudeProfile.list(claudeConfigDirs) }
+  /// The folders in the order the CLI reads them: the active profile first, as it takes the limits.
+  private var effectiveClaudeConfigDirs: String {
+    ClaudeProfile.ordered(claudeConfigDirs, active: claudeActiveDir)
+  }
   var offline: Bool { didSet { defaults.set(offline, forKey: "offline") } }
   var refreshMinutes: Int { didSet { defaults.set(refreshMinutes, forKey: "refreshMinutes") } }
   var quotaSource: QuotaSource {
@@ -68,7 +81,7 @@ final class UsageStore {
   var cursorQuotaChartRange = QuotaChartRange.rtd
   private var history: [String: [QuotaSample]] = [:]
   private var quotaHistory = QuotaHistory()
-  private var claudeSourceKey: String { claudeConfigDirs.isEmpty ? "" : "|claude=" + claudeConfigDirs }
+  private var claudeSourceKey: String { effectiveClaudeConfigDirs.isEmpty ? "" : "|claude=" + effectiveClaudeConfigDirs }
   private var quotaSourceKey: String { customPath + "|" + codexHomes + claudeSourceKey }
   private var quotaFileDate: Date?
   private var configuredQuotaSource: String?
@@ -99,7 +112,8 @@ final class UsageStore {
     customPath + "|" + codexHomes + claudeSourceKey + "|" + String(offline)
   }
   private var cliEnvironment: [String: String] {
-    CLIClient.environment(codexHomes: codexHomes, claudeConfigDirs: claudeConfigDirs)
+    CLIClient.environment(
+      codexHomes: codexHomes, claudeConfigDirs: effectiveClaudeConfigDirs)
   }
   private var started = false
 
@@ -117,6 +131,7 @@ final class UsageStore {
       defaults.string(forKey: "claudeConfigDirs")
       ?? SourcePaths.claudeConfigDirs(
         inherited: ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"])
+    claudeActiveDir = defaults.string(forKey: "claudeActiveDir") ?? ""
     offline = defaults.bool(forKey: "offline")
     refreshMinutes = max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
@@ -209,7 +224,8 @@ final class UsageStore {
     guard configuredQuotaSource != quotaSourceKey else { return }
     do {
       try QuotaCollectorConfig(
-        customPath: customPath, codexHomes: codexHomes, claudeConfigDirs: claudeConfigDirs)
+        customPath: customPath, codexHomes: codexHomes,
+        claudeConfigDirs: effectiveClaudeConfigDirs)
         .save(directory: cacheURL.deletingLastPathComponent())
       configuredQuotaSource = quotaSourceKey
       errors["quotaConfig"] = nil
