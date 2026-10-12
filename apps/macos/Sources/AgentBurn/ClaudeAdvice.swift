@@ -32,7 +32,7 @@ struct UsageMix: Codable, Sendable {
 }
 
 struct ClaudeAdvice: Equatable, Identifiable {
-  enum Kind: String { case switchToSonnet, lowerEffort, leaveScopedModel, headroom }
+  enum Kind: String { case switchToSonnet, lowerEffort, leaveScopedModel, headroom, lean }
   let kind: Kind
   let headline: String
   let detail: String
@@ -45,6 +45,8 @@ struct ClaudeAdvice: Equatable, Identifiable {
 private let minimumElapsed = 0.1
 /// Share of the premium turns the switch advice assumes move to Sonnet.
 private let switchedShare = 0.5
+/// Smallest projection change, in points, worth suggesting a switch for.
+private let minimumImpact = 3.0
 /// Share of high-effort thinking the effort advice assumes medium effort saves.
 private let thinkingSaved = 0.5
 
@@ -66,19 +68,21 @@ func claudeAdvice(
     let limit = (weeklyProjection ?? 0) >= 100 ? "weekly" : "5-hour"
     let total = mix.totalCost
     let premiumShare = mix.premiumCost / total
-    if premiumShare >= 0.3 {
-      let premiumSonnet = mix.premium.reduce(0) { $0 + $1.sonnetEquivalentCost }
-      let saving = switchedShare * max(0, mix.premiumCost - premiumSonnet) / total
-      let after = pressure * (1 - saving)
+    let premiumSonnet = mix.premium.reduce(0) { $0 + $1.sonnetEquivalentCost }
+    // With Opus or Fable a large share, half of it is routine work; a small share moves whole.
+    let moved = premiumShare >= 0.3 ? switchedShare : 1
+    let switchAfter = pressure * (1 - moved * max(0, mix.premiumCost - premiumSonnet) / total)
+    if premiumShare >= 0.1, pressure - switchAfter >= minimumImpact {
       let names = Set(mix.premium.map { $0.family.capitalized }).sorted().joined(separator: "/")
+      let portion = moved < 1 ? "half of those turns" : "those turns"
       advice.append(
         ClaudeAdvice(
           kind: .switchToSonnet, headline: "Move routine work to Sonnet.",
           detail:
             "\(names) made \(percent(premiumShare * 100)) of this profile's spend over \(mix.days) days. "
-            + "Running half of those turns on Sonnet would bring the \(limit) projection from "
-            + "\(percent(pressure)) to about \(percent(after)).",
-          impact: pressure - after))
+            + "Running \(portion) on Sonnet would bring the \(limit) projection from "
+            + "\(percent(pressure)) to about \(percent(switchAfter)).",
+          impact: pressure - switchAfter))
     }
     let highThinking = mix.highEfforts.reduce(0) { $0 + $1.thinkingCost }
     if highThinking / total >= 0.2 {
@@ -93,6 +97,19 @@ func claudeAdvice(
             + "\(percent(after)).",
           impact: pressure - after))
     }
+  }
+
+  if let pressure, advice.isEmpty, let mix, mix.totalCost > 0 {
+    let lean = mix.models.filter { $0.family != "opus" && $0.family != "fable" }
+      .reduce(0) { $0 + $1.cost } / mix.totalCost
+    advice.append(
+      ClaudeAdvice(
+        kind: .lean, headline: "Model and effort are already lean.",
+        detail:
+          "\(percent(lean * 100)) of the last \(mix.days) days' spend ran outside Opus and Fable, "
+          + "with little high-effort thinking. At \(percent(pressure)) projected, only a slower pace "
+          + "keeps the limit until reset.",
+        impact: 0))
   }
 
   if (weeklyProjection ?? 0) < 100 {
@@ -179,6 +196,7 @@ struct ClaudeAdviceView: View {
     case .lowerEffort: "brain"
     case .leaveScopedModel: "exclamationmark.triangle"
     case .headroom: "arrow.up.right"
+    case .lean: "gauge.with.dots.needle.67percent"
     }
   }
 }
