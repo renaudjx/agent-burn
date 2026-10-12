@@ -63,6 +63,8 @@ final class UsageStore {
       guard oldValue != claudeActiveDir else { return }
       defaults.set(claudeActiveDir, forKey: "claudeActiveDir")
       storedClaudeAccount = nil
+      // The mix belongs to the previous profile until its own report arrives.
+      reports["claude"]?.usageMix = nil
     }
   }
   var claudeProfiles: [ClaudeProfile] { ClaudeProfile.list(claudeConfigDirs) }

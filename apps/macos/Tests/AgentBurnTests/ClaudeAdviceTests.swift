@@ -93,3 +93,20 @@ private func mix(
   #expect(report.usageMix?.premiumCost == 3)
   #expect(report.usageMix?.efforts.first?.effort == "low")
 }
+
+@Test func aSmallOpusShareOverPaceMovesAllOfIt() {
+  // Opus is 25% of spend at twice Sonnet's price: moving it all saves 12.5% of 127%.
+  let advice = claudeAdvice(
+    weekly: weekly(used: 76.2, elapsed: 60), session: nil, scoped: [],
+    mix: mix(opus: 25, opusAsSonnet: 12.5, sonnet: 75), now: now)
+  #expect(advice.map(\.kind) == [.switchToSonnet])
+  #expect(advice[0].detail.contains("Running those turns"))
+  #expect(advice[0].detail.contains("111%"))
+}
+
+@Test func overPaceWithALeanMixSaysOnlyPaceHelps() {
+  let advice = claudeAdvice(
+    weekly: weekly(used: 76.2, elapsed: 60), session: nil, scoped: [],
+    mix: mix(opus: 1, opusAsSonnet: 0.5, sonnet: 99), now: now)
+  #expect(advice.map(\.kind) == [.lean])
+}
