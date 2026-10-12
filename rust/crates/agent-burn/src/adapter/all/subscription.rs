@@ -370,6 +370,8 @@ pub(super) struct WeeklyView<'a> {
     pub(super) image_count: usize,
     /// Estimated per-image price used for the image-generation line.
     pub(super) image_price: f64,
+    /// Claude: the active profile's recent spend by model and effort (`mix::usage_mix`).
+    pub(super) usage_mix: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -831,6 +833,7 @@ pub(super) fn weekly_to_json(view: &WeeklyView) -> Value {
         "daily": view.daily.iter().map(|(date, cost)| json!({ "date": date, "cost": json_float(*cost) })).collect::<Vec<_>>(),
         "topModels": view.models.iter().take(6).map(|(model, cost, tokens)| json!({ "model": model, "cost": json_float(*cost), "tokens": tokens })).collect::<Vec<_>>(),
         "spendMix": spend_mix_json(&view.spend_mix),
+        "usageMix": view.usage_mix,
         "weeklyTrend": view.weekly_trend.iter().map(|(week, cost)| json!({ "weekStart": week, "cost": json_float(*cost) })).collect::<Vec<_>>(),
     })
 }

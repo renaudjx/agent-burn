@@ -50,6 +50,7 @@ struct HarnessReport: Codable, Sendable {
   let imageGenerations: ImageUsage?
   var resetCreditsAvailable: Int? = nil
   var limitUsageDaily: [LimitUsageDay]? = nil
+  var usageMix: UsageMix? = nil
 }
 
 struct SubscriptionReport: Codable, Sendable {
