@@ -2,6 +2,7 @@ mod claude_code;
 mod credentials;
 mod daily;
 mod limits;
+mod mix;
 mod oauth_refresh;
 mod paths;
 mod plan;
@@ -9,6 +10,7 @@ mod profile;
 mod usage_cache;
 
 pub(crate) use limits::{live_usage_limits, load_account, usage_limits};
+pub(crate) use mix::{recent_lines, usage_mix};
 pub(crate) use plan::detected_plan_tier;
 
 use std::{

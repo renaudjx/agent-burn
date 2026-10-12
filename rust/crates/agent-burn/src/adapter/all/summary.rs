@@ -213,6 +213,9 @@ fn compact_date(date: IsoDate) -> String {
 
 /// Render the focused weekly-limit view for a single agent: limit-used vs
 /// time-elapsed, the value extrapolation, and a day-by-day breakdown.
+/// Days of history the model and effort advice is based on.
+const USAGE_MIX_DAYS: i64 = 7;
+
 fn run_harness_weekly(
     agent: &str,
     shared: &SharedArgs,
@@ -232,6 +235,16 @@ fn run_harness_weekly(
     let offline = shared.offline;
     let limit_usage =
         (agent == "codex").then(|| std::thread::spawn(move || codex::daily_limit_usage(offline)));
+    let usage_mix = (agent == "claude").then(|| {
+        let overrides = shared.pricing_overrides.clone();
+        std::thread::spawn(move || {
+            let recent = claude::recent_lines(USAGE_MIX_DAYS)?;
+            // Priced like the rest of the report, with live and models.dev
+            // rates, so new models are not counted as free.
+            let pricing = PricingMap::load_with_overrides(offline, false, overrides.iter());
+            claude::usage_mix(recent, &pricing)
+        })
+    });
     let result = loader::load_rows(AgentReportKind::Daily, &selected)?;
     let rows = &result.rows;
 
@@ -299,6 +312,7 @@ fn run_harness_weekly(
         weekly_trend: agent_weekly_trend(rows, agent, 8),
         image_count,
         image_price: CODEX_IMAGE_PRICE_ESTIMATE,
+        usage_mix: usage_mix.and_then(|handle| handle.join().ok()).flatten(),
     };
     if wants_json(shared) {
         return print_json_or_jq(

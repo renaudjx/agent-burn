@@ -273,6 +273,12 @@ struct NativeUsageView: View {
       ClaudeAccountView(
         account: store.summary?.claudeAccount,
         plan: store.summary?.subscription?.agents.first { $0.agent == "claude" })
+      let advice = claudeAdvice(
+        weekly: store.forecast(for: "claude"),
+        session: store.forecast(for: claudeSessionQuotaAgent),
+        scoped: store.summary?.claudeAccount?.scoped ?? [],
+        mix: store.reports["claude"]?.usageMix, now: store.quotaCheckDate)
+      if !advice.isEmpty { ClaudeAdviceView(advice: advice) }
     } else if agent == "codex" {
       quotaSection("codex")
       if let days = store.reports["codex"]?.limitUsageDaily,
