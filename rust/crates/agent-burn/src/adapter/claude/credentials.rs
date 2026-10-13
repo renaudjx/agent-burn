@@ -182,12 +182,7 @@ fn keychain(profile: &Profile) -> Option<Credentials> {
 fn keychain_item(service: &str) -> Option<Credentials> {
     use std::process::Command;
 
-    let secret = Command::new("security")
-        .args(["find-generic-password", "-s", service, "-w"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())?;
-    let raw = parse(&String::from_utf8(secret.stdout).ok()?)?;
+    let raw = parse(&read_keychain_secret(service)?)?;
     let attributes = Command::new("security")
         .args(["find-generic-password", "-s", service])
         .output()
@@ -214,21 +209,43 @@ fn keychain_account(attributes: &str) -> Option<String> {
     Some(value.to_string()).filter(|value| !value.is_empty() && !value.contains('"'))
 }
 
-/// `security -i` reads the command from stdin, so the secret never appears
-/// in the process list. `-X` takes the payload as hex, like Claude Code.
+/// Longest line `security -i` reads whole. Past it the line is cut and the
+/// rest runs as a second command, so a truncated payload gets stored.
+#[cfg(target_os = "macos")]
+const INTERACTIVE_LINE_LIMIT: usize = 4096;
+
+/// `-X` takes the payload as hex, like Claude Code. `security -i` reads the
+/// command from stdin, so the secret never appears in the process list; a
+/// payload too long for one stdin line goes through argv instead, as Claude
+/// Code does. The item is read back, so a write that stored anything else
+/// (a cut line, a concurrent writer) is reported as failed.
 #[cfg(target_os = "macos")]
 fn write_keychain(service: &str, account: &str, text: &str) -> bool {
+    let hex = text
+        .bytes()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let command = format!("add-generic-password -U -a \"{account}\" -s \"{service}\" -X \"{hex}\"");
+    let written = if fits_interactive_line(&command) {
+        write_keychain_stdin(&command)
+    } else {
+        write_keychain_argv(service, account, &hex)
+    };
+    written && read_keychain_secret(service).is_some_and(|stored| stored.trim() == text)
+}
+
+#[cfg(target_os = "macos")]
+fn fits_interactive_line(command: &str) -> bool {
+    command.len() < INTERACTIVE_LINE_LIMIT
+}
+
+#[cfg(target_os = "macos")]
+fn write_keychain_stdin(command: &str) -> bool {
     use std::{
         io::Write,
         process::{Command, Stdio},
     };
 
-    let hex = text
-        .bytes()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let command =
-        format!("add-generic-password -U -a \"{account}\" -s \"{service}\" -X \"{hex}\"\n");
     let Ok(mut child) = Command::new("security")
         .arg("-i")
         .stdin(Stdio::piped())
@@ -238,11 +255,39 @@ fn write_keychain(service: &str, account: &str, text: &str) -> bool {
     else {
         return false;
     };
-    let written = child
-        .stdin
-        .take()
-        .is_some_and(|mut stdin| stdin.write_all(command.as_bytes()).is_ok());
+    let written = child.stdin.take().is_some_and(|mut stdin| {
+        stdin.write_all(command.as_bytes()).is_ok() && stdin.write_all(b"\n").is_ok()
+    });
     child.wait().is_ok_and(|status| status.success()) && written
+}
+
+#[cfg(target_os = "macos")]
+fn write_keychain_argv(service: &str, account: &str, hex: &str) -> bool {
+    std::process::Command::new("security")
+        .args([
+            "add-generic-password",
+            "-U",
+            "-a",
+            account,
+            "-s",
+            service,
+            "-X",
+            hex,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn read_keychain_secret(service: &str) -> Option<String> {
+    let output = std::process::Command::new("security")
+        .args(["find-generic-password", "-s", service, "-w"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    String::from_utf8(output.stdout).ok()
 }
 
 #[cfg(test)]
@@ -306,5 +351,32 @@ mod tests {
         let attributes = "keychain: \"/Users/me/Library/Keychains/login.keychain-db\"\nattributes:\n    \"acct\"<blob>=\"melvynx\"\n    \"svce\"<blob>=\"Claude Code-credentials\"\n";
         assert_eq!(keychain_account(attributes).as_deref(), Some("melvynx"));
         assert_eq!(keychain_account("    \"acct\"<blob>=<NULL>"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sends_a_sign_in_with_mcp_tokens_through_argv() {
+        let short = "x".repeat(INTERACTIVE_LINE_LIMIT - 1);
+        assert!(fits_interactive_line(&short));
+        // A profile carrying a few MCP sign-ins hexes to ~5 KB.
+        let long = "x".repeat(INTERACTIVE_LINE_LIMIT);
+        assert!(!fits_interactive_line(&long));
+    }
+
+    /// Stores the same ~5 KB sign-in that `security -i` used to cut in half
+    /// in a throwaway Keychain item, and reads it back whole.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "writes to the login Keychain"]
+    fn round_trips_a_sign_in_longer_than_one_interactive_line() {
+        let service = format!("agent-burn-test-{}", std::process::id());
+        let mut raw: Value = serde_json::from_str(STORED).unwrap();
+        raw["mcpOAuth"]["padding"] = json!("p".repeat(2_500));
+        let text = raw.to_string();
+        let written = write_keychain(&service, "agent-burn-test", &text);
+        let _ = std::process::Command::new("security")
+            .args(["delete-generic-password", "-s", &service])
+            .output();
+        assert!(written);
     }
 }
