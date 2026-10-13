@@ -71,7 +71,12 @@ refresh token is single use and two uncoordinated refreshers log every
    Claude Code's client id, and the stored scopes.
 4. Write back only when the stored refresh token is still the one posted,
    merging the new tokens and expiries into the existing JSON. The Keychain
-   write goes through `security -i` stdin, so no secret reaches `argv`.
+   write goes through `security -i` stdin, so no secret reaches `argv`,
+   unless the command is longer than the 4096 characters `security -i` reads
+   per line: the item also holds Claude Code's MCP sign-ins, and a cut line
+   stores truncated JSON that logs every `claude` session out. Such a payload
+   goes through `argv`, like Claude Code does, and every write is read back
+   before it counts as stored.
 
 A refused renewal sets `claudeAccountStatus: "signInExpired"` and is retried
 after 10 minutes; only `/login` in `claude` recovers a revoked sign-in.
