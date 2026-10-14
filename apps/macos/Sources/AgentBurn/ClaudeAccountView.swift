@@ -131,7 +131,7 @@ struct ClaudeAccountView: View {
         get: { profiles.contains { $0.path == store.claudeActiveDir } ? store.claudeActiveDir : profiles[0].path },
         set: { store.claudeActiveDir = $0 })
       Picker("Profile", selection: selection) {
-        ForEach(profiles) { Text($0.name).tag($0.path) }
+        ForEach(profiles) { Text($0.label(among: profiles)).tag($0.path) }
       }
       .pickerStyle(.menu).labelsHidden().fixedSize()
       .help("Claude Code profile whose account and limits are shown")
