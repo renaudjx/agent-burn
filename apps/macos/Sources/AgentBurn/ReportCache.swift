@@ -68,6 +68,12 @@ struct ClaudeProfile: Identifiable, Equatable {
     return URL(fileURLWithPath: path).lastPathComponent
   }
 
+  /// `name`, plus the folder when another profile shares it (two folders signed in to one account).
+  func label(among profiles: [ClaudeProfile]) -> String {
+    guard profiles.filter({ $0.name == name }).count > 1 else { return name }
+    return "\(name) (\(URL(fileURLWithPath: path).lastPathComponent))"
+  }
+
   /// Folders as the user typed them, tildes expanded, empty entries and repeats dropped.
   static func list(_ configured: String) -> [ClaudeProfile] {
     var seen: [String] = []
