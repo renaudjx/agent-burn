@@ -4,7 +4,7 @@ use crate::{
     types::{Speed, UsageEntry},
 };
 
-const CACHE_CREATE_1H_INPUT_MULTIPLIER: f64 = 2.0;
+pub(crate) const CACHE_CREATE_1H_INPUT_MULTIPLIER: f64 = 2.0;
 
 pub(crate) fn calculate_cost(
     data: &UsageEntry,

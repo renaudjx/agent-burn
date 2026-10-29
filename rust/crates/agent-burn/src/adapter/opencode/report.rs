@@ -243,6 +243,7 @@ mod tests {
                 input_tokens: 100,
                 output_tokens: 50,
                 cache_creation_tokens: 10,
+                cache_creation_1h_tokens: 0,
                 cache_read_tokens: 5,
                 extra_total_tokens: 7,
                 cost: 0.25,

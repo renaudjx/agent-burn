@@ -8,7 +8,7 @@ use crate::{
     Color, IsoDate, MILLIS_PER_DAY, ModelBreakdown, PricingMap, Result, TimestampMs,
     adapter::{claude, codex, cursor},
     cli::{AgentReportKind, SharedArgs, SummaryArgs, SummaryRange, WeekDay},
-    cost::tiered_cost,
+    cost::{CACHE_CREATE_1H_INPUT_MULTIPLIER, tiered_cost},
     fast::FxHashMap,
     format_currency, format_date_tz, format_utc_date, json_float, parse_iso_date, parse_tz,
     print_json_or_jq, utc_now, wants_json, week_start,
@@ -18,7 +18,7 @@ use super::{
     loader,
     report::agent_label,
     subscription::{self, ClaudeInput, CodexInput, Subscription, WeeklyView, WindowCost},
-    types::AllRow,
+    types::{AllLoadResult, AllRow},
 };
 
 /// Width, in cells, of the proportional cost bar drawn next to each model.
@@ -292,8 +292,6 @@ fn run_harness_weekly(
     } else {
         0
     };
-    let spend_pricing =
-        PricingMap::load_with_overrides(true, false, shared.pricing_overrides.iter());
 
     let view = WeeklyView {
         agent,
@@ -308,7 +306,7 @@ fn run_harness_weekly(
             .unwrap_or_default(),
         monthly_equiv: agent_cost_last_days(rows, 30, agent),
         models: agent_models_last_days(rows, 30, agent),
-        spend_mix: agent_spend_mix_last_days(rows, 30, agent, &spend_pricing),
+        spend_mix: harness_spend_mix(&result, agent),
         weekly_trend: agent_weekly_trend(rows, agent, 8),
         image_count,
         image_price: CODEX_IMAGE_PRICE_ESTIMATE,
@@ -377,6 +375,13 @@ fn agent_models_last_days(rows: &[AllRow], days: i64, agent: &str) -> Vec<(Strin
         .collect();
     models.sort_by(|a, b| b.1.total_cmp(&a.1));
     models
+}
+
+/// Split the trailing 30-day spend by token class with the same pricing the
+/// row costs came from. A separate offline map misses models newer than the
+/// embedded snapshot and falls back to a token-weighted split.
+fn harness_spend_mix(result: &AllLoadResult, agent: &str) -> Vec<subscription::SpendMixItem> {
+    agent_spend_mix_last_days(&result.rows, 30, agent, &result.pricing)
 }
 
 fn agent_spend_mix_last_days(
@@ -548,9 +553,17 @@ fn estimated_model_category_costs(
             model_pricing.output_above_200k,
         ),
         cache_creation: tiered_cost(
-            model.cache_creation_tokens,
+            model
+                .cache_creation_tokens
+                .saturating_sub(model.cache_creation_1h_tokens),
             model_pricing.cache_create,
             model_pricing.cache_create_above_200k,
+        ) + tiered_cost(
+            model.cache_creation_1h_tokens,
+            model_pricing.input * CACHE_CREATE_1H_INPUT_MULTIPLIER,
+            model_pricing
+                .input_above_200k
+                .map(|rate| rate * CACHE_CREATE_1H_INPUT_MULTIPLIER),
         ),
         cache_read: tiered_cost(
             model.cache_read_tokens,
@@ -1470,6 +1483,78 @@ mod tests {
         assert_eq!(mix[3].key, "cacheRead");
         assert_eq!(mix[3].tokens, 50);
         assert!((mix[3].cost - 25.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn harness_spend_mix_prices_models_missing_from_embedded_snapshot() {
+        // Live LiteLLM rates for a model the embedded offline snapshot lacks.
+        let mut pricing = PricingMap::load_embedded();
+        pricing.load_json(
+            r#"{
+                "claude-opus-5-5": {
+                    "input_cost_per_token": 4e-6,
+                    "output_cost_per_token": 2e-5,
+                    "cache_creation_input_token_cost": 5e-6,
+                    "cache_read_input_token_cost": 2e-7
+                }
+            }"#,
+        );
+        // 1M output + 100M cache reads + 1M one-hour cache writes:
+        // $20 + $20 + $8 at list price.
+        let mut breakdown = model_token_breakdown(
+            "claude-opus-5-5",
+            0,
+            1_000_000,
+            1_000_000,
+            100_000_000,
+            48.0,
+        );
+        breakdown.cache_creation_1h_tokens = 1_000_000;
+        let agent = AllRow {
+            period: format_utc_date(utc_now()),
+            agent: "claude",
+            models_used: vec!["claude-opus-5-5".to_string()],
+            input_tokens: 0,
+            output_tokens: 1_000_000,
+            cache_creation_tokens: 1_000_000,
+            cache_read_tokens: 100_000_000,
+            total_tokens: 102_000_000,
+            total_cost: 48.0,
+            metadata: None,
+            metadata_agents: Some(vec!["claude"]),
+            agent_breakdowns: None,
+            model_breakdowns: vec![breakdown],
+        };
+        let mut row = day_row(48.0, 102_000_000, vec![agent], Vec::new());
+        row.period = format_utc_date(utc_now());
+        let result = AllLoadResult {
+            rows: vec![row],
+            detected_agents: vec!["claude"],
+            pricing,
+        };
+
+        let mix = harness_spend_mix(&result, "claude");
+
+        // Token-weighted fallback would put ~$0.47 on output and ~$47 on reads;
+        // pricing 1h writes at the 5m rate would inflate output to ~$21.
+        assert_eq!(mix[0].key, "output");
+        assert!(
+            (mix[0].cost - 20.0).abs() < 1e-6,
+            "output cost {}",
+            mix[0].cost
+        );
+        assert_eq!(mix[1].key, "cacheCreation");
+        assert!(
+            (mix[1].cost - 8.0).abs() < 1e-6,
+            "cache write cost {}",
+            mix[1].cost
+        );
+        assert_eq!(mix[2].key, "cacheRead");
+        assert!(
+            (mix[2].cost - 20.0).abs() < 1e-6,
+            "cache read cost {}",
+            mix[2].cost
+        );
     }
 
     #[test]

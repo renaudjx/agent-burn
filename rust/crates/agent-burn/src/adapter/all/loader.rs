@@ -275,6 +275,7 @@ pub(super) fn load_rows(kind: AgentReportKind, shared: &SharedArgs) -> Result<Al
         return Ok(AllLoadResult {
             rows,
             detected_agents,
+            pricing,
         });
     }
 
@@ -283,6 +284,7 @@ pub(super) fn load_rows(kind: AgentReportKind, shared: &SharedArgs) -> Result<Al
     Ok(AllLoadResult {
         rows: aggregated,
         detected_agents,
+        pricing,
     })
 }
 
@@ -607,6 +609,7 @@ pub(super) fn codex_group_row(
                 input_tokens: input,
                 output_tokens: usage.output_tokens,
                 cache_creation_tokens: 0,
+                cache_creation_1h_tokens: 0,
                 cache_read_tokens: usage.cached_input_tokens,
                 extra_total_tokens: 0,
                 cost: codex::calculate_codex_model_cost(model, usage, pricing, speed),
