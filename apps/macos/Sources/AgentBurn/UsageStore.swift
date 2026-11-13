@@ -85,7 +85,6 @@ final class UsageStore {
   var menuBarHiddenProfiles: String {
     didSet { defaults.set(menuBarHiddenProfiles, forKey: "menuBarHiddenProfiles") }
   }
-  var menuBarPaceDot: Bool { didSet { defaults.set(menuBarPaceDot, forKey: "menuBarPaceDot") } }
 
   func showsInMenuBar(_ profile: ClaudeProfile) -> Bool {
     !menuBarHiddenProfiles.split(separator: ",").map(String.init).contains(profile.path)
@@ -170,7 +169,6 @@ final class UsageStore {
       ? 15 : max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
     menuBarHiddenProfiles = defaults.string(forKey: "menuBarHiddenProfiles") ?? ""
-    menuBarPaceDot = defaults.object(forKey: "menuBarPaceDot") as? Bool ?? true
     quotaChartRange =
       QuotaChartRange(rawValue: defaults.string(forKey: "quotaChartRange") ?? "") ?? .rte
     cursorQuotaChartRange = .rtd

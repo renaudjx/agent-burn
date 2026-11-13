@@ -40,8 +40,7 @@ struct AgentBurnApp: App {
     } label: {
       // TimelineView in a MenuBarExtra label can continuously invalidate the status item.
       MenuBarLabel(
-        readings: store.menuBarReadings, text: store.menuBarText,
-        paceDot: store.menuBarPaceDot)
+        readings: store.menuBarReadings, text: store.menuBarText)
     }
     .menuBarExtraStyle(.window)
     Settings { SettingsView().environment(store) }
@@ -67,7 +66,6 @@ struct UsageCommands: Commands {
 struct MenuBarLabel: View {
   let readings: [MenuBarReading]
   let text: String
-  var paceDot = true
   @Environment(\.colorScheme) private var scheme
 
   // A MenuBarExtra label keeps a single image; the limits alone fill it, no logo.
@@ -77,7 +75,7 @@ struct MenuBarLabel: View {
   }
 
   private var rendered: NSImage {
-    let content = MenuBarValues(readings: readings, scheme: scheme, paceDot: paceDot)
+    let content = MenuBarValues(readings: readings, scheme: scheme)
     let renderer = ImageRenderer(content: content)
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
     let image = renderer.nsImage ?? NSImage()
@@ -89,7 +87,6 @@ struct MenuBarLabel: View {
 private struct MenuBarValues: View {
   let readings: [MenuBarReading]
   let scheme: ColorScheme
-  var paceDot = true
   private var neutral: Color { scheme == .dark ? .white : .black }
 
   var body: some View {
@@ -122,9 +119,7 @@ private struct MenuBarValues: View {
       case nil: .clear
       }
     return HStack(spacing: 3) {
-      if paceDot {
-        Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
-      }
+      Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
       Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
         .font(.system(size: size, weight: .regular)).monospacedDigit()
         .foregroundStyle(neutral)
