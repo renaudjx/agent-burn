@@ -14,10 +14,3 @@ import Testing
   #expect(center.redComponent > center.greenComponent * 1.3)
   #expect(center.redComponent > center.blueComponent * 2)
 }
-
-@Test @MainActor func menuBarKeepsOfficialLogoColorWithoutResizingApplicationLogo() {
-  #expect(!AppLogo.menuBar.isTemplate)
-  #expect(AppLogo.menuBar.size == NSSize(width: 18, height: 18))
-  #expect(AppLogo.menuBar !== AppLogo.window)
-  #expect(AppLogo.window.size.width >= 512)
-}

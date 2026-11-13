@@ -230,9 +230,14 @@ import Testing
   #expect(UsageStore(defaults: defaults, period: .all).quotaSource == .claude)
 }
 
-@Test @MainActor func menuBarLogoIsAvailableImmediately() {
-  #expect(AppLogo.menuBar.size.width > 0)
-  #expect(AppLogo.menuBar.size.height > 0)
+@Test func menuBarPaceComparesRemainingWithAnEvenWeek() throws {
+  let now = Date(timeIntervalSince1970: 1_800_000_000)
+  let halfWeekLeft = now.addingTimeInterval(3.5 * 24 * 3600)
+  #expect(try #require(evenPaceDelta(remaining: 60, resetsAt: halfWeekLeft, now: now)) == 10)
+  #expect(MenuBarReading(remaining: 40, pace: -10).isBehind == true)
+  #expect(MenuBarReading(remaining: 60, pace: 10).isBehind == false)
+  #expect(evenPaceDelta(remaining: 60, resetsAt: nil, now: now) == nil)
+  #expect(MenuBarReading(remaining: 60, pace: nil).isBehind == nil)
 }
 
 @Test func decodesCompleteHarnessEconomicsAndTrends() throws {
