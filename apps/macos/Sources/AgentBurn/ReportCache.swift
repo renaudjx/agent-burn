@@ -82,7 +82,7 @@ struct ClaudeProfile: Identifiable, Equatable {
 
   /// The weekly limit left in the last reading the CLI cached for this profile, read
   /// whether or not the profile is active, with the time it was taken.
-  var cachedWeeklyRemaining: (percent: Double, observedAt: Date)? {
+  var cachedWeeklyRemaining: (percent: Double, observedAt: Date, resetsAt: Date?)? {
     let hash = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
     let cacheDir = ProcessInfo.processInfo.environment["AGENT_BURN_CACHE_DIR"].map {
       URL(fileURLWithPath: $0)
@@ -101,11 +101,17 @@ struct ClaudeProfile: Identifiable, Equatable {
       }
     guard let body else { return nil }
     let limits = body["limits"] as? [[String: Any]] ?? []
-    let used =
-      (limits.first { $0["kind"] as? String == "weekly_all" }?["percent"] as? Double)
-      ?? ((body["seven_day"] as? [String: Any])?["utilization"] as? Double)
+    let weekly = limits.first { $0["kind"] as? String == "weekly_all" }
+    let sevenDay = body["seven_day"] as? [String: Any]
+    let used = (weekly?["percent"] as? Double) ?? (sevenDay?["utilization"] as? Double)
     guard let used else { return nil }
-    return (max(0, 100 - used), Date(timeIntervalSince1970: fetchedAt / 1000))
+    let resetText = (weekly?["resets_at"] as? String) ?? (sevenDay?["resets_at"] as? String)
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let resetsAt = resetText.flatMap {
+      parser.date(from: $0) ?? ISO8601DateFormatter().date(from: $0)
+    }
+    return (max(0, 100 - used), Date(timeIntervalSince1970: fetchedAt / 1000), resetsAt)
   }
 
   /// Folders as the user typed them, tildes expanded, empty entries and repeats dropped.

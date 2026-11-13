@@ -540,15 +540,36 @@ final class UsageStore {
     return profile.cachedWeeklyRemaining?.percent
   }
 
-  /// Menu bar text: every Claude profile's limit when Claude is the source and
-  /// several profiles are set, in the configured order.
-  var menuBarText: String {
-    let stale = quotaIsStale(at: quotaCheckDate)
+  /// Menu bar readings: every Claude profile's weekly limit, in the configured order,
+  /// when Claude is the source and several profiles are set; else the source's limit.
+  var menuBarReadings: [MenuBarReading] {
     guard quotaSource == .claude, activeClaudeProfile != nil else {
-      return menuBarQuotaText(remainingPercent, stale: stale)
+      return [MenuBarReading(remaining: remainingPercent, pace: menuBarPace(remainingPercent, quotaSource.rawValue))]
     }
-    let values = claudeProfiles.map { claudeRemaining(for: $0).map { "\(Int($0))%" } ?? "–" }
-    return values.joined(separator: " / ") + (stale ? " · stale" : "")
+    return claudeProfiles.map { profile in
+      let remaining = claudeRemaining(for: profile)
+      if profile.path == activeClaudeProfile?.path {
+        return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
+      }
+      let cached = profile.cachedWeeklyRemaining
+      return MenuBarReading(
+        remaining: remaining,
+        pace: cached.flatMap { evenPaceDelta(remaining: $0.percent, resetsAt: $0.resetsAt, now: quotaCheckDate) })
+    }
+  }
+
+  var menuBarText: String {
+    menuBarReadings.map { $0.remaining.map { "\(Int($0))%" } ?? "–" }.joined(separator: " / ")
+      + (quotaIsStale(at: quotaCheckDate) ? " · stale" : "")
+  }
+
+  /// Remaining now minus an even pace, from the live forecast like the limit panels.
+  private func menuBarPace(_ remaining: Double?, _ agent: String) -> Double? {
+    guard remaining != nil, agent != "cursor", let forecast = forecast(for: agent) else { return nil }
+    return quotaChartReading(
+      at: forecast.observedAt, samples: samples(for: agent, range: .rte, now: quotaCheckDate),
+      forecast: forecast, range: .rte
+    ).paceDelta
   }
 
   var remainingPercent: Double? {
@@ -642,4 +663,20 @@ final class UsageStore {
     return resets(for: agent).last?.date ?? forecast(for: agent)?.start
   }
 
+}
+
+struct MenuBarReading: Equatable {
+  let remaining: Double?
+  /// Remaining minus an even pace until reset; negative means behind.
+  let pace: Double?
+  var isBehind: Bool? { pace.map { $0 < -0.05 } }
+}
+
+/// Remaining minus the share of a weekly window still to run, for a reading with
+/// no history to chart.
+func evenPaceDelta(remaining: Double, resetsAt: Date?, now: Date) -> Double? {
+  guard let resetsAt else { return nil }
+  let week: TimeInterval = 7 * 24 * 3600
+  let left = min(max(resetsAt.timeIntervalSince(now), 0), week)
+  return remaining - 100 * left / week
 }
