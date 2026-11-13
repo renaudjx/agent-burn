@@ -39,8 +39,7 @@ struct AgentBurnApp: App {
       MenuPopover().environment(store)
     } label: {
       // TimelineView in a MenuBarExtra label can continuously invalidate the status item.
-      MenuBarLabel(
-        remaining: store.remainingPercent, stale: store.quotaIsStale(at: store.quotaCheckDate))
+      MenuBarLabel(text: store.menuBarText)
     }
     .menuBarExtraStyle(.window)
     Settings { SettingsView().environment(store) }
@@ -61,16 +60,15 @@ struct UsageCommands: Commands {
 }
 
 struct MenuBarLabel: View {
-  let remaining: Double?
-  var stale = false
+  let text: String
   var body: some View {
     HStack(spacing: 4) {
       Image(nsImage: AppLogo.menuBar)
         .resizable()
         .renderingMode(.original)
         .frame(width: 18, height: 18)
-      Text(menuBarQuotaText(remaining, stale: stale)).monospacedDigit()
+      Text(text).monospacedDigit()
     }
-    .accessibilityLabel("Agent Burn \(menuBarQuotaText(remaining, stale: stale))")
+    .accessibilityLabel("Agent Burn \(text)")
   }
 }

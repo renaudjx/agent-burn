@@ -523,6 +523,34 @@ final class UsageStore {
       period: period, knownDates: Array(dates), resetStart: resetStartDate)
   }
 
+  /// The active profile among two or more; nil with a single profile.
+  var activeClaudeProfile: ClaudeProfile? {
+    let profiles = claudeProfiles
+    guard profiles.count > 1 else { return nil }
+    return profiles.first { $0.path == claudeActiveDir } ?? profiles[0]
+  }
+
+  /// A profile's weekly limit left: live for the active one, else its last cached reading.
+  func claudeRemaining(for profile: ClaudeProfile) -> Double? {
+    guard profile.path != activeClaudeProfile?.path else {
+      return remainingQuota(
+        for: .claude, forecast: forecast(for: "claude"),
+        cursorAccount: summary?.cursorAccount, claudeAccount: summary?.claudeAccount)
+    }
+    return profile.cachedWeeklyRemaining?.percent
+  }
+
+  /// Menu bar text: every Claude profile's limit when Claude is the source and
+  /// several profiles are set, in the configured order.
+  var menuBarText: String {
+    let stale = quotaIsStale(at: quotaCheckDate)
+    guard quotaSource == .claude, activeClaudeProfile != nil else {
+      return menuBarQuotaText(remainingPercent, stale: stale)
+    }
+    let values = claudeProfiles.map { claudeRemaining(for: $0).map { "\(Int($0))%" } ?? "–" }
+    return values.joined(separator: " / ") + (stale ? " · stale" : "")
+  }
+
   var remainingPercent: Double? {
     remainingQuota(
       for: quotaSource, forecast: forecast(for: quotaSource.rawValue),

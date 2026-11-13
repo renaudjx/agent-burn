@@ -75,25 +75,44 @@ struct MenuPopover: View {
 }
 
 private struct PopoverTabs: View {
+  @Environment(UsageStore.self) private var store
   @Binding var selection: String
   @Namespace private var pill
-  private let tabs: [(id: String, label: String)] = [
-    ("summary", "General"), ("codex", "Codex"), ("claude", "Claude"), ("cursor", "Cursor"),
-  ]
+  /// With several Claude profiles, one tab per account replaces the single Claude tab;
+  /// its id carries the profile folder after `claude@`.
+  private var tabs: [(id: String, label: String)] {
+    let claude: [(id: String, label: String)] =
+      store.activeClaudeProfile == nil
+      ? [("claude", "Claude")]
+      : store.claudeProfiles.map { ("claude@" + $0.path, $0.shortName) }
+    return [("summary", "General"), ("codex", "Codex")] + claude + [("cursor", "Cursor")]
+  }
+  private func isActive(_ id: String) -> Bool {
+    guard id.hasPrefix("claude@") else { return selection == id }
+    return selection == "claude" && id == "claude@" + (store.activeClaudeProfile?.path ?? "")
+  }
+  private func select(_ id: String) {
+    if id.hasPrefix("claude@") {
+      store.claudeActiveDir = String(id.dropFirst("claude@".count))
+      selection = "claude"
+    } else {
+      selection = id
+    }
+  }
   var body: some View {
     HStack(spacing: 2) {
       ForEach(tabs, id: \.id) { tab in
-        let active = selection == tab.id
+        let active = isActive(tab.id)
         Button {
-          withAnimation(.snappy(duration: 0.28)) { selection = tab.id }
+          withAnimation(.snappy(duration: 0.28)) { select(tab.id) }
         } label: {
           HStack(spacing: 5) {
             if tab.id == "summary" {
               Image(systemName: "square.grid.2x2").font(.system(size: 10, weight: .semibold))
             } else {
-              HarnessIcon(agent: tab.id, size: 13)
+              HarnessIcon(agent: tab.id.hasPrefix("claude@") ? "claude" : tab.id, size: 13)
             }
-            Text(tab.label)
+            Text(tab.label).lineLimit(1).truncationMode(.tail)
           }
           .font(.system(size: 12, weight: active ? .semibold : .medium))
           .foregroundStyle(active ? BurnTheme.ink : BurnTheme.quotaMuted)

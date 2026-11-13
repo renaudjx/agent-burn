@@ -69,6 +69,11 @@ struct ClaudeProfile: Identifiable, Equatable {
     return URL(fileURLWithPath: path).lastPathComponent
   }
 
+  /// The part of the e-mail before `@`, short enough for a tab.
+  var shortName: String {
+    name.split(separator: "@").first.map(String.init) ?? name
+  }
+
   /// `name`, plus the folder when another profile shares it (two folders signed in to one account).
   func label(among profiles: [ClaudeProfile]) -> String {
     guard profiles.filter({ $0.name == name }).count > 1 else { return name }
