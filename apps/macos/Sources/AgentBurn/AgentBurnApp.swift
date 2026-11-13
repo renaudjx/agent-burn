@@ -120,7 +120,7 @@ private struct MenuBarValues: View {
     return HStack(spacing: 3) {
       Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
       Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
-        .font(.system(size: size, weight: .semibold)).monospacedDigit()
+        .font(.system(size: size, weight: .regular)).monospacedDigit()
         .foregroundStyle(neutral)
     }
   }
