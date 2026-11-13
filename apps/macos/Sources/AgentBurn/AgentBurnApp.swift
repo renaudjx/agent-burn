@@ -39,7 +39,10 @@ struct AgentBurnApp: App {
       MenuPopover().environment(store)
     } label: {
       // TimelineView in a MenuBarExtra label can continuously invalidate the status item.
-      MenuBarLabel(readings: store.menuBarReadings, text: store.menuBarText)
+      MenuBarLabel(
+        readings: store.menuBarReadings, text: store.menuBarText,
+        style: MenuBarStyle(
+          stacked: store.menuBarStacked, paceDot: store.menuBarPaceDot, logo: store.menuBarLogo))
     }
     .menuBarExtraStyle(.window)
     Settings { SettingsView().environment(store) }
@@ -62,9 +65,16 @@ struct UsageCommands: Commands {
 /// The status item: each limit tinted green ahead of an even pace and
 /// red behind it. Several readings stack in two rows so they stay narrow. The text is
 /// drawn into an image, since the menu bar renders label text as a monochrome template.
+struct MenuBarStyle: Equatable {
+  var stacked = true
+  var paceDot = true
+  var logo = false
+}
+
 struct MenuBarLabel: View {
   let readings: [MenuBarReading]
   let text: String
+  var style = MenuBarStyle()
   @Environment(\.colorScheme) private var scheme
 
   // A MenuBarExtra label keeps a single image; the limits alone fill it, no logo.
@@ -74,7 +84,12 @@ struct MenuBarLabel: View {
   }
 
   private var rendered: NSImage {
-    let content = MenuBarValues(readings: readings, scheme: scheme)
+    let content = HStack(spacing: 4) {
+      if style.logo {
+        Image(nsImage: AppLogo.window).resizable().frame(width: 16, height: 16)
+      }
+      MenuBarValues(readings: readings, scheme: scheme, style: style)
+    }
     let renderer = ImageRenderer(content: content)
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
     let image = renderer.nsImage ?? NSImage()
@@ -86,10 +101,11 @@ struct MenuBarLabel: View {
 private struct MenuBarValues: View {
   let readings: [MenuBarReading]
   let scheme: ColorScheme
+  var style = MenuBarStyle()
   private var neutral: Color { scheme == .dark ? .white : .black }
 
   var body: some View {
-    let stacked = readings.count > 1
+    let stacked = style.stacked && readings.count > 1
     // Two rows fit the menu bar's height; more accounts add columns, read top to bottom.
     let rows =
       stacked
@@ -118,7 +134,9 @@ private struct MenuBarValues: View {
       case nil: .clear
       }
     return HStack(spacing: 3) {
-      Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
+      if style.paceDot {
+        Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
+      }
       Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
         .font(.system(size: size, weight: .regular)).monospacedDigit()
         .foregroundStyle(neutral)

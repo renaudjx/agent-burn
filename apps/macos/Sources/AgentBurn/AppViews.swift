@@ -423,7 +423,23 @@ struct QuotaSourceSettings: View {
         }
       }
       Text(
-        "The flame in the menu bar and the window toolbar show this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
+        "The menu bar and the window toolbar show this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
+      )
+      .font(.caption).foregroundStyle(.secondary)
+      if store.quotaSource == .claude, store.claudeProfiles.count > 1 {
+        ForEach(store.claudeProfiles) { profile in
+          Toggle(
+            "Show \(profile.label(among: store.claudeProfiles))",
+            isOn: Binding(
+              get: { store.showsInMenuBar(profile) },
+              set: { store.setShowsInMenuBar(profile, $0) }))
+        }
+        Toggle("Stack accounts in two rows", isOn: $store.menuBarStacked)
+      }
+      Toggle("Pace dot", isOn: $store.menuBarPaceDot)
+      Toggle("Logo", isOn: $store.menuBarLogo)
+      Text(
+        "The dot is green while a limit is ahead of an even pace until its reset and red when it falls behind. Accounts that are not active show their last cached reading."
       )
       .font(.caption).foregroundStyle(.secondary)
     }

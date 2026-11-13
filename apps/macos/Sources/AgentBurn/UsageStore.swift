@@ -81,6 +81,25 @@ final class UsageStore {
   var quotaSource: QuotaSource {
     didSet { defaults.set(quotaSource.rawValue, forKey: "quotaSource") }
   }
+  /// Claude profile folders left out of the menu bar, comma-separated.
+  var menuBarHiddenProfiles: String {
+    didSet { defaults.set(menuBarHiddenProfiles, forKey: "menuBarHiddenProfiles") }
+  }
+  var menuBarStacked: Bool { didSet { defaults.set(menuBarStacked, forKey: "menuBarStacked") } }
+  var menuBarPaceDot: Bool { didSet { defaults.set(menuBarPaceDot, forKey: "menuBarPaceDot") } }
+  var menuBarLogo: Bool { didSet { defaults.set(menuBarLogo, forKey: "menuBarLogo") } }
+
+  func showsInMenuBar(_ profile: ClaudeProfile) -> Bool {
+    !menuBarHiddenProfiles.split(separator: ",").map(String.init).contains(profile.path)
+  }
+
+  func setShowsInMenuBar(_ profile: ClaudeProfile, _ shown: Bool) {
+    var hidden = menuBarHiddenProfiles.split(separator: ",").map(String.init)
+      .filter { $0 != profile.path }
+    if !shown { hidden.append(profile.path) }
+    menuBarHiddenProfiles = hidden.joined(separator: ",")
+  }
+
   var quotaChartRange: QuotaChartRange {
     didSet { defaults.set(quotaChartRange.rawValue, forKey: "quotaChartRange") }
   }
@@ -152,6 +171,10 @@ final class UsageStore {
       defaults.object(forKey: "refreshMinutes") == nil
       ? 15 : max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
+    menuBarHiddenProfiles = defaults.string(forKey: "menuBarHiddenProfiles") ?? ""
+    menuBarStacked = defaults.object(forKey: "menuBarStacked") as? Bool ?? true
+    menuBarPaceDot = defaults.object(forKey: "menuBarPaceDot") as? Bool ?? true
+    menuBarLogo = defaults.object(forKey: "menuBarLogo") as? Bool ?? false
     quotaChartRange =
       QuotaChartRange(rawValue: defaults.string(forKey: "quotaChartRange") ?? "") ?? .rte
     cursorQuotaChartRange = .rtd
@@ -546,7 +569,10 @@ final class UsageStore {
     guard quotaSource == .claude, activeClaudeProfile != nil else {
       return [MenuBarReading(remaining: remainingPercent, pace: menuBarPace(remainingPercent, quotaSource.rawValue))]
     }
-    return claudeProfiles.map { profile in
+    // Hiding every profile would leave an empty item, so the active one stays.
+    let shown = claudeProfiles.filter(showsInMenuBar)
+    let profiles = shown.isEmpty ? [activeClaudeProfile].compactMap { $0 } : shown
+    return profiles.map { profile in
       let remaining = claudeRemaining(for: profile)
       if profile.path == activeClaudeProfile?.path {
         return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
