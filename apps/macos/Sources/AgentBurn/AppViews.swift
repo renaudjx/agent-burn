@@ -434,10 +434,8 @@ struct QuotaSourceSettings: View {
               get: { store.showsInMenuBar(profile) },
               set: { store.setShowsInMenuBar(profile, $0) }))
         }
-        Toggle("Stack accounts in two rows", isOn: $store.menuBarStacked)
       }
       Toggle("Pace dot", isOn: $store.menuBarPaceDot)
-      Toggle("Logo", isOn: $store.menuBarLogo)
       Text(
         "The dot is green while a limit is ahead of an even pace until its reset and red when it falls behind. Accounts that are not active show their last cached reading."
       )
