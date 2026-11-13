@@ -59,7 +59,7 @@ struct UsageCommands: Commands {
   }
 }
 
-/// The status item: the logo, then each limit tinted green ahead of an even pace and
+/// The status item: each limit tinted green ahead of an even pace and
 /// red behind it. Several readings stack in two rows so they stay narrow. The text is
 /// drawn into an image, since the menu bar renders label text as a monochrome template.
 struct MenuBarLabel: View {
@@ -67,19 +67,14 @@ struct MenuBarLabel: View {
   let text: String
   @Environment(\.colorScheme) private var scheme
 
-  // A MenuBarExtra label keeps a single image, so the logo is drawn into it too.
+  // A MenuBarExtra label keeps a single image; the limits alone fill it, no logo.
   var body: some View {
     Image(nsImage: rendered)
       .accessibilityLabel("Agent Burn \(text)")
   }
 
   private var rendered: NSImage {
-    let content = HStack(spacing: 4) {
-      Image(nsImage: AppLogo.menuBar)
-        .resizable()
-        .frame(width: 18, height: 18)
-      MenuBarValues(readings: readings, scheme: scheme)
-    }
+    let content = MenuBarValues(readings: readings, scheme: scheme)
     let renderer = ImageRenderer(content: content)
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
     let image = renderer.nsImage ?? NSImage()
