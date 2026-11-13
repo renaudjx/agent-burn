@@ -64,7 +64,15 @@ struct ClaudeAccountView: View {
   private var weekly: Forecast? { store.forecast(for: "claude") }
   /// The newest saved session reading, kept after its window resets for the reset time.
   private var lastSession: Forecast? { store.forecast(for: claudeSessionQuotaAgent) }
-  private var session: Forecast? { lastSession.flatMap { $0.reset > now ? $0 : nil } }
+  /// Max plans have no 5-hour window: the live reading then carries no session meter.
+  private var hasSessionLimit: Bool {
+    guard let account else { return true }
+    return account.sessionUsedPercent != nil || account.sessionResetsAtMs != nil
+  }
+  private var session: Forecast? {
+    guard hasSessionLimit else { return nil }
+    return lastSession.flatMap { $0.reset > now ? $0 : nil }
+  }
   /// The report's status is only as new as the report; a live reading collected
   /// since then proves Claude Code renewed its sign-in.
   private var signInExpired: Bool {
@@ -96,11 +104,13 @@ struct ClaudeAccountView: View {
       }
       if account != nil || weekly != nil || lastSession != nil {
         HStack(alignment: .top, spacing: 14) {
-          ClaudeLimitPanel(
-            title: "5-hour session", forecast: session,
-            samples: store.samples(for: claudeSessionQuotaAgent, range: .rte, now: now),
-            now: now, tint: tint, used: account?.sessionUsedPercent,
-            resetsAt: sessionReset, stale: signInExpired)
+          if hasSessionLimit {
+            ClaudeLimitPanel(
+              title: "5-hour session", forecast: session,
+              samples: store.samples(for: claudeSessionQuotaAgent, range: .rte, now: now),
+              now: now, tint: tint, used: account?.sessionUsedPercent,
+              resetsAt: sessionReset, stale: signInExpired)
+          }
           ClaudeLimitPanel(
             title: "Weekly", forecast: weekly,
             samples: store.samples(for: "claude", range: .rte, now: now),

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct SummaryQuery: Equatable {
@@ -72,6 +73,34 @@ struct ClaudeProfile: Identifiable, Equatable {
   func label(among profiles: [ClaudeProfile]) -> String {
     guard profiles.filter({ $0.name == name }).count > 1 else { return name }
     return "\(name) (\(URL(fileURLWithPath: path).lastPathComponent))"
+  }
+
+  /// The weekly limit left in the last reading the CLI cached for this profile, read
+  /// whether or not the profile is active, with the time it was taken.
+  var cachedWeeklyRemaining: (percent: Double, observedAt: Date)? {
+    let hash = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
+    let cacheDir = ProcessInfo.processInfo.environment["AGENT_BURN_CACHE_DIR"].map {
+      URL(fileURLWithPath: $0)
+    } ?? FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Caches/agent-burn")
+    let file = cacheDir.appendingPathComponent("claude-usage-\(hash.prefix(8)).json")
+    guard let data = try? Data(contentsOf: file),
+      let cache = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let fetchedAt = cache["fetchedAt"] as? Double
+    else { return nil }
+    let rawBody = cache["body"]
+    let body =
+      (rawBody as? [String: Any])
+      ?? (rawBody as? String).flatMap {
+        try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+      }
+    guard let body else { return nil }
+    let limits = body["limits"] as? [[String: Any]] ?? []
+    let used =
+      (limits.first { $0["kind"] as? String == "weekly_all" }?["percent"] as? Double)
+      ?? ((body["seven_day"] as? [String: Any])?["utilization"] as? Double)
+    guard let used else { return nil }
+    return (max(0, 100 - used), Date(timeIntervalSince1970: fetchedAt / 1000))
   }
 
   /// Folders as the user typed them, tildes expanded, empty entries and repeats dropped.

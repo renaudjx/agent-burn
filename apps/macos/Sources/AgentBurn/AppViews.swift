@@ -252,8 +252,11 @@ private struct DashboardSidebar: View {
               row(id: Self.profilePrefix + profile.path, title: profile.label(among: claudeProfiles)) {
                 HarnessIcon(agent: agent, size: 20)
               } trailing: {
-                // Live limits are read for the active profile only.
-                if profile.path == activeClaudePath { quotaBadge(agent) }
+                if profile.path == activeClaudePath {
+                  quotaBadge(agent)
+                } else {
+                  cachedProfileBadge(profile)
+                }
               }
               .help(profile.path)
             }
@@ -298,6 +301,25 @@ private struct DashboardSidebar: View {
   @ViewBuilder private func spend(_ value: Double?) -> some View {
     if let value {
       Text(currency(value)).font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+    }
+  }
+
+  /// Live limits are read for the active profile only; the others show the weekly
+  /// limit from their last cached reading, dimmed once it is over an hour old.
+  @ViewBuilder private func cachedProfileBadge(_ profile: ClaudeProfile) -> some View {
+    if let reading = profile.cachedWeeklyRemaining {
+      let old = Date().timeIntervalSince(reading.observedAt) > 3600
+      let tone: Color =
+        old ? .secondary
+        : reading.percent < 15 ? BurnTheme.behind : reading.percent < 35 ? .orange : .green
+      Text(menuBarQuotaText(reading.percent))
+        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+        .foregroundStyle(tone)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(tone.opacity(0.14), in: Capsule())
+        .help(
+          "Weekly limit left, read \(reading.observedAt.formatted(.relative(presentation: .named)))"
+        )
     }
   }
 

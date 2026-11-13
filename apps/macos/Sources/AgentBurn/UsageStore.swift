@@ -65,6 +65,8 @@ final class UsageStore {
       storedClaudeAccount = nil
       // The mix belongs to the previous profile until its own report arrives.
       reports["claude"]?.usageMix = nil
+      // The plan and limits shown belong to the profile just picked, so read them now.
+      Task { await refreshAll() }
     }
   }
   var claudeProfiles: [ClaudeProfile] { ClaudeProfile.list(claudeConfigDirs) }
