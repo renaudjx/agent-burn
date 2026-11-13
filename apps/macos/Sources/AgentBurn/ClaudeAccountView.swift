@@ -265,6 +265,8 @@ struct ClaudeLimitPanel: View {
       at: forecast.observedAt, samples: samples, forecast: forecast, range: .rte
     ).paceDelta
   }
+  /// Same threshold as the pace badge, so the number turns red when the badge does.
+  private var isBehindPace: Bool { (paceDelta ?? 0) < -0.05 }
   private var atRisk: Bool {
     forecast.map { $0.remaining <= 0 || $0.projectedEnd < $0.reset } ?? false
   }
@@ -289,6 +291,7 @@ struct ClaudeLimitPanel: View {
           HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(remaining.map(quotaPercentText) ?? "—")
               .font(.system(size: 40, weight: .semibold, design: .rounded)).monospacedDigit()
+              .foregroundStyle(isBehindPace ? BurnTheme.behind : .primary)
               .contentTransition(.numericText()).animation(.snappy, value: remaining)
             Text("left").font(.system(size: 14)).foregroundStyle(BurnTheme.muted)
           }

@@ -304,6 +304,17 @@ private struct DashboardSidebar: View {
     }
   }
 
+  /// Below an even pace until reset, as the limit panel's pace badge shows it.
+  private func isBehindPace(_ agent: String) -> Bool {
+    guard agent != "cursor", let forecast = store.forecast(for: agent) else { return false }
+    let now = store.quotaCheckDate
+    let delta = quotaChartReading(
+      at: forecast.observedAt, samples: store.samples(for: agent, range: .rte, now: now),
+      forecast: forecast, range: .rte
+    ).paceDelta
+    return (delta ?? 0) < -0.05
+  }
+
   /// Live limits are read for the active profile only; the others show the weekly
   /// limit from their last cached reading, dimmed once it is over an hour old.
   @ViewBuilder private func cachedProfileBadge(_ profile: ClaudeProfile) -> some View {
@@ -330,7 +341,8 @@ private struct DashboardSidebar: View {
         cursorAccount: store.summary?.cursorAccount,
         claudeAccount: store.summary?.claudeAccount)
     {
-      let tone: Color = remaining < 15 ? BurnTheme.behind : remaining < 35 ? .orange : .green
+      let tone: Color =
+        remaining < 15 || isBehindPace(agent) ? BurnTheme.behind : remaining < 35 ? .orange : .green
       Text(menuBarQuotaText(remaining))
         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
         .foregroundStyle(tone)

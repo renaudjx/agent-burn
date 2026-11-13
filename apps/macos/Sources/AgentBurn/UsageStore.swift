@@ -62,10 +62,12 @@ final class UsageStore {
     didSet {
       guard oldValue != claudeActiveDir else { return }
       defaults.set(claudeActiveDir, forKey: "claudeActiveDir")
-      storedClaudeAccount = nil
+      storedClaudeAccount = claudeAccountFile.load()
       // The mix belongs to the previous profile until its own report arrives.
       reports["claude"]?.usageMix = nil
-      // The plan and limits shown belong to the profile just picked, so read them now.
+      // Drop the previous profile's report at once, then read the picked one's plan and
+      // limits, even when a refresh already running would skip a second one.
+      queueSummary(force: true)
       Task { await refreshAll() }
     }
   }
@@ -99,6 +101,14 @@ final class UsageStore {
   private let cacheURL: URL
   private var cache: ReportCache?
   private var storedClaudeAccount: ClaudeAccount?
+  /// The active profile's saved meters; with one profile, the shared default file.
+  private var claudeAccountFile: ClaudeAccountFile {
+    let profiles = claudeProfiles
+    let active =
+      profiles.count > 1
+      ? (profiles.first { $0.path == claudeActiveDir } ?? profiles[0]).path : ""
+    return ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent(), profile: active)
+  }
   private var archive = MetricsArchive()
   private var archiveWritable = true
   var archiveURL: URL {
@@ -168,7 +178,7 @@ final class UsageStore {
         updated[agent] = saved.date
       }
     }
-    storedClaudeAccount = ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent()).load()
+    storedClaudeAccount = claudeAccountFile.load()
     rememberClaudeAccount(
       latestClaudeAccount(cache?.summaries.values.compactMap(\.report.claudeAccount) ?? []))
     do {
@@ -550,7 +560,7 @@ final class UsageStore {
     else { return }
     storedClaudeAccount = account
     do {
-      try ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent()).save(account)
+      try claudeAccountFile.save(account)
       errors["claudeAccount"] = nil
     } catch {
       errors["claudeAccount"] =
