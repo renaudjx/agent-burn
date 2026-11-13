@@ -209,8 +209,33 @@ private struct DashboardSidebar: View {
   private var others: [String] {
     store.knownAgents.filter { !subscriptions.contains($0) }
   }
+  private static let profilePrefix = "claude@"
+  /// One sidebar row per Claude Code profile once more than one is configured.
+  private var claudeProfiles: [ClaudeProfile] {
+    let profiles = store.claudeProfiles
+    return profiles.count > 1 ? profiles : []
+  }
+  private var activeClaudePath: String? {
+    claudeProfiles.first { $0.path == store.claudeActiveDir }?.path ?? claudeProfiles.first?.path
+  }
+  /// A profile row selects the Claude view and makes that profile the one whose limits are shown.
   private var selection: Binding<String?> {
-    Binding(get: { store.selection }, set: { if let value = $0 { store.selection = value } })
+    Binding(
+      get: {
+        if store.selection == "claude", let path = activeClaudePath {
+          return Self.profilePrefix + path
+        }
+        return store.selection
+      },
+      set: { value in
+        guard let value else { return }
+        if value.hasPrefix(Self.profilePrefix) {
+          store.claudeActiveDir = String(value.dropFirst(Self.profilePrefix.count))
+          store.selection = "claude"
+        } else {
+          store.selection = value
+        }
+      })
   }
 
   var body: some View {
@@ -222,10 +247,22 @@ private struct DashboardSidebar: View {
       }
       Section("Subscriptions") {
         ForEach(subscriptions, id: \.self) { agent in
-          row(id: agent, title: harnessName(agent)) {
-            HarnessIcon(agent: agent, size: 20)
-          } trailing: {
-            quotaBadge(agent)
+          if agent == "claude" && !claudeProfiles.isEmpty {
+            ForEach(claudeProfiles) { profile in
+              row(id: Self.profilePrefix + profile.path, title: profile.label(among: claudeProfiles)) {
+                HarnessIcon(agent: agent, size: 20)
+              } trailing: {
+                // Live limits are read for the active profile only.
+                if profile.path == activeClaudePath { quotaBadge(agent) }
+              }
+              .help(profile.path)
+            }
+          } else {
+            row(id: agent, title: harnessName(agent)) {
+              HarnessIcon(agent: agent, size: 20)
+            } trailing: {
+              quotaBadge(agent)
+            }
           }
         }
       }

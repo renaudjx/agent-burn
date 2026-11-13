@@ -9,7 +9,7 @@ MAC=$REPO/apps/macos
 SPARKLE=${SPARKLE:?set SPARKLE to the extracted Sparkle release folder}
 OUT=${OUT:-$REPO/custom-build}
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+export SDKROOT=${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}
 [[ ! -e "$OUT" ]] || trash "$OUT"
 mkdir -p "$OUT"
 version="$(tr -d '\n' < "$MAC/Config/version")"
