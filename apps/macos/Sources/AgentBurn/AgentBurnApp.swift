@@ -67,19 +67,20 @@ struct MenuBarLabel: View {
   let text: String
   @Environment(\.colorScheme) private var scheme
 
+  // A MenuBarExtra label keeps a single image, so the logo is drawn into it too.
   var body: some View {
-    HStack(spacing: 4) {
-      Image(nsImage: AppLogo.menuBar)
-        .resizable()
-        .renderingMode(.original)
-        .frame(width: 18, height: 18)
-      Image(nsImage: rendered)
-    }
-    .accessibilityLabel("Agent Burn \(text)")
+    Image(nsImage: rendered)
+      .accessibilityLabel("Agent Burn \(text)")
   }
 
   private var rendered: NSImage {
-    let renderer = ImageRenderer(content: MenuBarValues(readings: readings, scheme: scheme))
+    let content = HStack(spacing: 4) {
+      Image(nsImage: AppLogo.menuBar)
+        .resizable()
+        .frame(width: 18, height: 18)
+      MenuBarValues(readings: readings, scheme: scheme)
+    }
+    let renderer = ImageRenderer(content: content)
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
     let image = renderer.nsImage ?? NSImage()
     image.isTemplate = false
