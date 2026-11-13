@@ -113,15 +113,21 @@ private struct MenuBarValues: View {
     .environment(\.colorScheme, scheme)
   }
 
+  /// The value stays in the menu bar's text color; a dot before it gives the pace,
+  /// green ahead and red behind, and stays empty when the pace is unknown.
   private func value(_ reading: MenuBarReading, size: CGFloat) -> some View {
-    let color: Color =
+    let dot: Color =
       switch reading.isBehind {
-      case true?: Color(red: 1, green: 0.35, blue: 0.33)
-      case false?: Color(red: 0.3, green: 0.85, blue: 0.45)
-      case nil: neutral
+      case true?: Color(red: 1, green: 0.3, blue: 0.28)
+      case false?: Color(red: 0.25, green: 0.82, blue: 0.4)
+      case nil: .clear
       }
-    return Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
-      .font(.system(size: size, weight: .semibold)).monospacedDigit()
-      .foregroundStyle(color)
+    return HStack(spacing: 3) {
+      Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
+      Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
+        .font(.system(size: size, weight: .semibold)).monospacedDigit()
+        .foregroundStyle(neutral)
+    }
   }
+
 }
