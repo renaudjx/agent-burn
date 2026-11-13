@@ -147,7 +147,10 @@ final class UsageStore {
         inherited: ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"])
     claudeActiveDir = defaults.string(forKey: "claudeActiveDir") ?? ""
     offline = defaults.bool(forKey: "offline")
-    refreshMinutes = max(1, defaults.integer(forKey: "refreshMinutes"))
+    // Each refresh rescans every agent log, so short intervals are opt-in, not the default.
+    refreshMinutes =
+      defaults.object(forKey: "refreshMinutes") == nil
+      ? 15 : max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
     quotaChartRange =
       QuotaChartRange(rawValue: defaults.string(forKey: "quotaChartRange") ?? "") ?? .rte
@@ -201,6 +204,25 @@ final class UsageStore {
     publishSummary()
   }
 
+  /// Same as `reloadQuotas`, but decodes the multi-megabyte archive off the main
+  /// thread so the window never stops responding while the collector writes it.
+  func reloadQuotasInBackground() async {
+    let file = QuotaHistoryFile(directory: cacheURL.deletingLastPathComponent())
+    let date = try? file.url.resourceValues(forKeys: [.contentModificationDateKey])
+      .contentModificationDate
+    if let date, date == quotaFileDate { return }
+    let loaded = await Task.detached(priority: .utility) { Result { try file.load() } }.value
+    switch loaded {
+    case .success(let saved):
+      if let saved { quotaHistory = saved }
+      quotaFileDate = date
+      errors["quotaHistory"] = nil
+    case .failure:
+      errors["quotaHistory"] =
+        "Quota history could not be read. The last available readings are preserved."
+    }
+  }
+
   func reloadQuotas() {
     do {
       let file = QuotaHistoryFile(directory: cacheURL.deletingLastPathComponent())
@@ -252,7 +274,7 @@ final class UsageStore {
     while !Task.isCancelled {
       quotaCheckDate = .now
       configureQuotaCollector()
-      reloadQuotas()
+      await reloadQuotasInBackground()
       let backgroundEnabled = defaults.object(forKey: "backgroundQuotas") as? Bool != false
       let status = QuotaService.service.status
       if status == .enabled {
@@ -271,7 +293,7 @@ final class UsageStore {
   }
 
   func refreshQuotasIfNeeded(backgroundAvailable: Bool, now: Date = .now) async {
-    reloadQuotas()
+    await reloadQuotasInBackground()
     let sourceChanged = collectedQuotaSource != quotaSourceKey
     let retryDue = now.timeIntervalSince(quotaCollectionDate ?? .distantPast) >= 60
     // Registration is not evidence of successful collection: launchd can stay
@@ -314,7 +336,7 @@ final class UsageStore {
         errors["quotaCollector"] =
           "Quota collection could not save its readings. Existing history is preserved."
       }
-      reloadQuotas()
+      await reloadQuotasInBackground()
       quotaCheckDate = .now
       force = pendingForcedCollection
     } while force
@@ -352,12 +374,11 @@ final class UsageStore {
       let executable = try CLIClient.executable(customPath: customPath)
       let useOffline = offline
       // Quota collection is independent; these reports provide spend details.
-      await withTaskGroup(of: Void.self) { group in
-        for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
-          group.addTask {
-            await self.loadHarness(agent, executable: executable, offline: useOffline)
-          }
-        }
+      // Every report rescans all agent logs, so run them one after another, never at once:
+      // parallel scans used several gigabytes of RAM and every core, freezing the Mac.
+      await summaries?.value
+      for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
+        await loadHarness(agent, executable: executable, offline: useOffline)
       }
     } catch {
       for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
