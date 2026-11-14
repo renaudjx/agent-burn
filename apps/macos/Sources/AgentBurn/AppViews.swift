@@ -427,12 +427,18 @@ struct QuotaSourceSettings: View {
       )
       .font(.caption).foregroundStyle(.secondary)
       if store.quotaSource == .claude, store.claudeProfiles.count > 1 {
+        let shownCount = store.claudeProfiles.filter(store.showsInMenuBar).count
         ForEach(store.claudeProfiles) { profile in
+          let shown = store.showsInMenuBar(profile)
           Toggle(
             "Show \(profile.label(among: store.claudeProfiles))",
-            isOn: Binding(
-              get: { store.showsInMenuBar(profile) },
-              set: { store.setShowsInMenuBar(profile, $0) }))
+            isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(profile, $0) })
+          )
+          .disabled(!shown && shownCount >= UsageStore.menuBarProfileLimit)
+        }
+        if store.claudeProfiles.count > UsageStore.menuBarProfileLimit {
+          Text("The menu bar shows two accounts at most. Turn one off to show another.")
+            .font(.caption).foregroundStyle(.secondary)
         }
       }
       Text(

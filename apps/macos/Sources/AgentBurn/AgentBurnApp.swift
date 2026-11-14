@@ -61,7 +61,7 @@ struct UsageCommands: Commands {
 }
 
 /// The status item: each limit tinted green ahead of an even pace and
-/// red behind it. Several readings stack in two rows so they stay narrow. The text is
+/// red behind it. Two accounts stack in two rows so they stay narrow. The text is
 /// drawn into an image, since the menu bar renders label text as a monochrome template.
 struct MenuBarLabel: View {
   let readings: [MenuBarReading]
@@ -91,18 +91,10 @@ private struct MenuBarValues: View {
 
   var body: some View {
     let stacked = readings.count > 1
-    // Two rows fit the menu bar's height; more accounts add columns, read top to bottom.
-    let rows =
-      stacked
-      ? (0..<2).map { row in stride(from: row, to: readings.count, by: 2).map { readings[$0] } }
-      : [readings]
+    // The store keeps at most two accounts, one per row of the menu bar's height.
     VStack(alignment: .trailing, spacing: -1) {
-      ForEach(rows.indices, id: \.self) { row in
-        HStack(spacing: 4) {
-          ForEach(rows[row].indices, id: \.self) { index in
-            value(rows[row][index], size: stacked ? 9 : 13)
-          }
-        }
+      ForEach(readings.indices, id: \.self) { index in
+        value(readings[index], size: stacked ? 9 : 13)
       }
     }
     .fixedSize()

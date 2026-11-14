@@ -86,6 +86,22 @@ final class UsageStore {
     didSet { defaults.set(menuBarHiddenProfiles, forKey: "menuBarHiddenProfiles") }
   }
 
+  /// The menu bar fits two accounts. Hiding every profile would leave an empty item,
+  /// so the active one stays; past two, the active one is kept first, then the others
+  /// in the configured order.
+  static let menuBarProfileLimit = 2
+  var menuBarProfiles: [ClaudeProfile] {
+    let shown = claudeProfiles.filter(showsInMenuBar)
+    guard let active = activeClaudeProfile else { return [] }
+    guard !shown.isEmpty else { return [active] }
+    guard shown.count > Self.menuBarProfileLimit else { return shown }
+    let keep =
+      (shown.contains(active) ? [active] : [])
+      + shown.filter { $0 != active }
+    let picked = Set(keep.prefix(Self.menuBarProfileLimit).map(\.path))
+    return shown.filter { picked.contains($0.path) }
+  }
+
   func showsInMenuBar(_ profile: ClaudeProfile) -> Bool {
     !menuBarHiddenProfiles.split(separator: ",").map(String.init).contains(profile.path)
   }
@@ -563,10 +579,7 @@ final class UsageStore {
     guard quotaSource == .claude, activeClaudeProfile != nil else {
       return [MenuBarReading(remaining: remainingPercent, pace: menuBarPace(remainingPercent, quotaSource.rawValue))]
     }
-    // Hiding every profile would leave an empty item, so the active one stays.
-    let shown = claudeProfiles.filter(showsInMenuBar)
-    let profiles = shown.isEmpty ? [activeClaudeProfile].compactMap { $0 } : shown
-    return profiles.map { profile in
+    return menuBarProfiles.map { profile in
       let remaining = claudeRemaining(for: profile)
       if profile.path == activeClaudeProfile?.path {
         return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
