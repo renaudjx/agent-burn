@@ -81,45 +81,65 @@ final class UsageStore {
   var quotaSource: QuotaSource {
     didSet { defaults.set(quotaSource.rawValue, forKey: "quotaSource") }
   }
-  /// Claude profile folders left out of the menu bar, comma-separated.
-  var menuBarHiddenProfiles: String {
-    didSet { defaults.set(menuBarHiddenProfiles, forKey: "menuBarHiddenProfiles") }
+  /// Menu bar entries in their chosen order, comma-separated ids; see `menuBarEntries`.
+  var menuBarOrder: String { didSet { defaults.set(menuBarOrder, forKey: "menuBarOrder") } }
+  /// Ids of the entries switched on for the menu bar; nil until first set, when the
+  /// quota source decides.
+  var menuBarShown: String? { didSet { defaults.set(menuBarShown, forKey: "menuBarShown") } }
+
+  /// The menu bar fits two limits, one per row.
+  static let menuBarLimit = 2
+
+  /// Every limit the menu bar can show: Codex, Cursor, and Claude, split into one
+  /// entry per account when several profiles are set. Saved order first, new ones after.
+  var menuBarEntries: [MenuBarEntry] {
+    let profiles = claudeProfiles
+    let claude: [MenuBarEntry] =
+      profiles.count > 1
+      ? profiles.map {
+        MenuBarEntry(id: "claude@" + $0.path, label: "Claude · " + $0.label(among: profiles))
+      }
+      : [MenuBarEntry(id: "claude", label: "Claude")]
+    let all =
+      [MenuBarEntry(id: "codex", label: "Codex")] + claude
+      + [MenuBarEntry(id: "cursor", label: "Cursor")]
+    let saved = menuBarOrder.split(separator: ",").map(String.init)
+    let rank = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+    return all.enumerated().sorted {
+      (rank[$0.element.id] ?? saved.count + $0.offset) < (rank[$1.element.id] ?? saved.count + $1.offset)
+    }.map(\.element)
   }
 
-  /// The menu bar fits two accounts. Hiding every profile would leave an empty item,
-  /// so the active one stays; past two, the active one is kept first, then the others
-  /// in the configured order.
-  static let menuBarProfileLimit = 2
-  var menuBarProfiles: [ClaudeProfile] {
-    let shown = claudeProfiles.filter(showsInMenuBar)
-    guard let active = activeClaudeProfile else { return [] }
-    guard !shown.isEmpty else { return [active] }
-    guard shown.count > Self.menuBarProfileLimit else { return shown }
-    let keep =
-      (shown.contains(active) ? [active] : [])
-      + shown.filter { $0 != active }
-    let picked = Set(keep.prefix(Self.menuBarProfileLimit).map(\.path))
-    return shown.filter { picked.contains($0.path) }
+  func showsInMenuBar(_ entry: MenuBarEntry) -> Bool {
+    guard let shown = menuBarShown else {
+      // Before any choice, the quota source fills the menu bar, all its accounts for Claude.
+      return entry.id == quotaSource.rawValue || entry.id.hasPrefix(quotaSource.rawValue + "@")
+    }
+    return shown.split(separator: ",").map(String.init).contains(entry.id)
   }
 
-  /// Moves a profile one place up in "Claude config dirs", the order the sidebar,
-  /// the popover tabs and the menu bar all follow.
-  func moveClaudeProfileUp(_ profile: ClaudeProfile) {
-    var paths = claudeProfiles.map(\.path)
-    guard let index = paths.firstIndex(of: profile.path), index > 0 else { return }
-    paths.swapAt(index, index - 1)
-    claudeConfigDirs = paths.joined(separator: ", ")
+  func setShowsInMenuBar(_ entry: MenuBarEntry, _ shown: Bool) {
+    var ids = menuBarEntries.filter(showsInMenuBar).map(\.id).filter { $0 != entry.id }
+    if shown { ids.append(entry.id) }
+    menuBarShown = ids.joined(separator: ",")
   }
 
-  func showsInMenuBar(_ profile: ClaudeProfile) -> Bool {
-    !menuBarHiddenProfiles.split(separator: ",").map(String.init).contains(profile.path)
+  func moveMenuBarEntryUp(_ entry: MenuBarEntry) {
+    var ids = menuBarEntries.map(\.id)
+    guard let index = ids.firstIndex(of: entry.id), index > 0 else { return }
+    ids.swapAt(index, index - 1)
+    menuBarOrder = ids.joined(separator: ",")
   }
 
-  func setShowsInMenuBar(_ profile: ClaudeProfile, _ shown: Bool) {
-    var hidden = menuBarHiddenProfiles.split(separator: ",").map(String.init)
-      .filter { $0 != profile.path }
-    if !shown { hidden.append(profile.path) }
-    menuBarHiddenProfiles = hidden.joined(separator: ",")
+  /// The entries in the menu bar: the first two switched on, or the quota source when
+  /// none is, so the item is never empty.
+  var menuBarDisplayed: [MenuBarEntry] {
+    let shown = menuBarEntries.filter(showsInMenuBar).prefix(Self.menuBarLimit)
+    guard shown.isEmpty else { return Array(shown) }
+    return Array(
+      menuBarEntries.filter {
+        $0.id == quotaSource.rawValue || $0.id.hasPrefix(quotaSource.rawValue + "@")
+      }.prefix(1))
   }
 
   var quotaChartRange: QuotaChartRange {
@@ -193,7 +213,8 @@ final class UsageStore {
       defaults.object(forKey: "refreshMinutes") == nil
       ? 15 : max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
-    menuBarHiddenProfiles = defaults.string(forKey: "menuBarHiddenProfiles") ?? ""
+    menuBarOrder = defaults.string(forKey: "menuBarOrder") ?? ""
+    menuBarShown = defaults.string(forKey: "menuBarShown")
     quotaChartRange =
       QuotaChartRange(rawValue: defaults.string(forKey: "quotaChartRange") ?? "") ?? .rte
     cursorQuotaChartRange = .rtd
@@ -582,21 +603,33 @@ final class UsageStore {
     return profile.cachedWeeklyRemaining?.percent
   }
 
-  /// Menu bar readings: every Claude profile's weekly limit, in the configured order,
-  /// when Claude is the source and several profiles are set; else the source's limit.
+  /// One reading per menu bar entry: live for Codex, Cursor and the active Claude
+  /// profile, the last cached reading for another Claude profile.
   var menuBarReadings: [MenuBarReading] {
-    guard quotaSource == .claude, activeClaudeProfile != nil else {
-      return [MenuBarReading(remaining: remainingPercent, pace: menuBarPace(remainingPercent, quotaSource.rawValue))]
-    }
-    return menuBarProfiles.map { profile in
-      let remaining = claudeRemaining(for: profile)
-      if profile.path == activeClaudeProfile?.path {
-        return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
+    menuBarDisplayed.map { entry in
+      if entry.id.hasPrefix("claude@") {
+        let path = String(entry.id.dropFirst("claude@".count))
+        guard let profile = claudeProfiles.first(where: { $0.path == path }) else {
+          return MenuBarReading(remaining: nil, pace: nil)
+        }
+        let remaining = claudeRemaining(for: profile)
+        if path == activeClaudeProfile?.path {
+          return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
+        }
+        let cached = profile.cachedWeeklyRemaining
+        return MenuBarReading(
+          remaining: remaining,
+          pace: cached.flatMap {
+            evenPaceDelta(remaining: $0.percent, resetsAt: $0.resetsAt, now: quotaCheckDate)
+          })
       }
-      let cached = profile.cachedWeeklyRemaining
-      return MenuBarReading(
-        remaining: remaining,
-        pace: cached.flatMap { evenPaceDelta(remaining: $0.percent, resetsAt: $0.resetsAt, now: quotaCheckDate) })
+      guard let source = QuotaSource(rawValue: entry.id) else {
+        return MenuBarReading(remaining: nil, pace: nil)
+      }
+      let remaining = remainingQuota(
+        for: source, forecast: forecast(for: source.rawValue),
+        cursorAccount: summary?.cursorAccount, claudeAccount: summary?.claudeAccount)
+      return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, source.rawValue))
     }
   }
 
@@ -721,4 +754,9 @@ func evenPaceDelta(remaining: Double, resetsAt: Date?, now: Date) -> Double? {
   let week: TimeInterval = 7 * 24 * 3600
   let left = min(max(resetsAt.timeIntervalSince(now), 0), week)
   return remaining - 100 * left / week
+}
+
+struct MenuBarEntry: Identifiable, Equatable {
+  let id: String
+  let label: String
 }

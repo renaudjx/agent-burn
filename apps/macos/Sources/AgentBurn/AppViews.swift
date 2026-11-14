@@ -422,42 +422,37 @@ struct QuotaSourceSettings: View {
   var body: some View {
     @Bindable var store = store
     Section("Menu bar quota") {
-      Picker("Show remaining", selection: $store.quotaSource) {
+      Picker("Toolbar", selection: $store.quotaSource) {
         ForEach(QuotaSource.allCases) { source in
           Text(source.label).tag(source)
         }
       }
       Text(
-        "The menu bar and the window toolbar show this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
+        "The window toolbar shows this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
       )
       .font(.caption).foregroundStyle(.secondary)
-      if store.quotaSource == .claude, store.claudeProfiles.count > 1 {
-        let shownCount = store.claudeProfiles.filter(store.showsInMenuBar).count
-        ForEach(store.claudeProfiles) { profile in
-          let shown = store.showsInMenuBar(profile)
-          HStack {
-            Button {
-              store.moveClaudeProfileUp(profile)
-            } label: {
-              Image(systemName: "arrow.up")
-            }
-            .buttonStyle(.borderless)
-            .disabled(profile == store.claudeProfiles.first)
-            .help("Move up: the order of the menu bar, the sidebar and the popover tabs")
-            Toggle(
-              "Show \(profile.label(among: store.claudeProfiles))",
-              isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(profile, $0) })
-            )
-            .disabled(!shown && shownCount >= UsageStore.menuBarProfileLimit)
+      let entries = store.menuBarEntries
+      let shownCount = entries.filter(store.showsInMenuBar).count
+      ForEach(entries) { entry in
+        let shown = store.showsInMenuBar(entry)
+        HStack {
+          Button {
+            store.moveMenuBarEntryUp(entry)
+          } label: {
+            Image(systemName: "arrow.up")
           }
-        }
-        if store.claudeProfiles.count > UsageStore.menuBarProfileLimit {
-          Text("The menu bar shows two accounts at most. Turn one off to show another.")
-            .font(.caption).foregroundStyle(.secondary)
+          .buttonStyle(.borderless)
+          .disabled(entry == entries.first)
+          .help("Move up")
+          Toggle(
+            entry.label,
+            isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(entry, $0) })
+          )
+          .disabled(!shown && shownCount >= UsageStore.menuBarLimit)
         }
       }
       Text(
-        "The dot is green while a limit is ahead of an even pace until its reset and red when it falls behind. Accounts that are not active show their last cached reading."
+        "The menu bar shows two limits at most, top to bottom in this order. The dot is green while a limit is ahead of an even pace until its reset and red when it falls behind. A Claude account that is not active shows its last cached reading."
       )
       .font(.caption).foregroundStyle(.secondary)
     }
