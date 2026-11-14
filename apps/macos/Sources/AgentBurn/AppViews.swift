@@ -430,11 +430,21 @@ struct QuotaSourceSettings: View {
         let shownCount = store.claudeProfiles.filter(store.showsInMenuBar).count
         ForEach(store.claudeProfiles) { profile in
           let shown = store.showsInMenuBar(profile)
-          Toggle(
-            "Show \(profile.label(among: store.claudeProfiles))",
-            isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(profile, $0) })
-          )
-          .disabled(!shown && shownCount >= UsageStore.menuBarProfileLimit)
+          HStack {
+            Button {
+              store.moveClaudeProfileUp(profile)
+            } label: {
+              Image(systemName: "arrow.up")
+            }
+            .buttonStyle(.borderless)
+            .disabled(profile == store.claudeProfiles.first)
+            .help("Move up: the order of the menu bar, the sidebar and the popover tabs")
+            Toggle(
+              "Show \(profile.label(among: store.claudeProfiles))",
+              isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(profile, $0) })
+            )
+            .disabled(!shown && shownCount >= UsageStore.menuBarProfileLimit)
+          }
         }
         if store.claudeProfiles.count > UsageStore.menuBarProfileLimit {
           Text("The menu bar shows two accounts at most. Turn one off to show another.")

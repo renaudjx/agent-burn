@@ -102,6 +102,15 @@ final class UsageStore {
     return shown.filter { picked.contains($0.path) }
   }
 
+  /// Moves a profile one place up in "Claude config dirs", the order the sidebar,
+  /// the popover tabs and the menu bar all follow.
+  func moveClaudeProfileUp(_ profile: ClaudeProfile) {
+    var paths = claudeProfiles.map(\.path)
+    guard let index = paths.firstIndex(of: profile.path), index > 0 else { return }
+    paths.swapAt(index, index - 1)
+    claudeConfigDirs = paths.joined(separator: ", ")
+  }
+
   func showsInMenuBar(_ profile: ClaudeProfile) -> Bool {
     !menuBarHiddenProfiles.split(separator: ",").map(String.init).contains(profile.path)
   }
