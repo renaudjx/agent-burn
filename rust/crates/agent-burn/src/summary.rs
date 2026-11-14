@@ -76,6 +76,7 @@ impl UsageAccumulator {
             breakdown.input_tokens += usage.input_tokens;
             breakdown.output_tokens += usage.output_tokens;
             breakdown.cache_creation_tokens += usage.cache_creation_token_count();
+            breakdown.cache_creation_1h_tokens += usage.cache_creation_1h_token_count();
             breakdown.cache_read_tokens += usage.cache_read_input_tokens;
             breakdown.extra_total_tokens += entry.extra_total_tokens;
             breakdown.cost += entry.cost;
@@ -253,6 +254,7 @@ fn aggregate_summaries(rows: &[&UsageSummary]) -> UsageSummary {
             breakdown.input_tokens += item.input_tokens;
             breakdown.output_tokens += item.output_tokens;
             breakdown.cache_creation_tokens += item.cache_creation_tokens;
+            breakdown.cache_creation_1h_tokens += item.cache_creation_1h_tokens;
             breakdown.cache_read_tokens += item.cache_read_tokens;
             breakdown.extra_total_tokens += item.extra_total_tokens;
             breakdown.cost += item.cost;
@@ -673,6 +675,7 @@ mod tests {
                 input_tokens: fixture.input_tokens,
                 output_tokens: 10,
                 cache_creation_tokens: 1,
+                cache_creation_1h_tokens: 0,
                 cache_read_tokens: 2,
                 extra_total_tokens: 3,
                 cost: fixture.cost,

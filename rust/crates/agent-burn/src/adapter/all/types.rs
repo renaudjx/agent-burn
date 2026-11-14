@@ -24,6 +24,8 @@ pub(super) struct AllRow {
 pub(super) struct AllLoadResult {
     pub(super) rows: Vec<AllRow>,
     pub(super) detected_agents: Vec<&'static str>,
+    /// Pricing the row costs were computed with, reused for per-category splits.
+    pub(super) pricing: crate::PricingMap,
 }
 
 pub(super) struct AgentRows {
@@ -145,6 +147,7 @@ fn merge_model_breakdowns(
         b.input_tokens += item.input_tokens;
         b.output_tokens += item.output_tokens;
         b.cache_creation_tokens += item.cache_creation_tokens;
+        b.cache_creation_1h_tokens += item.cache_creation_1h_tokens;
         b.cache_read_tokens += item.cache_read_tokens;
         b.extra_total_tokens += item.extra_total_tokens;
         b.cost += item.cost;
@@ -171,6 +174,7 @@ pub(super) fn aggregate_model_breakdowns(rows: &[AllRow]) -> Vec<ModelBreakdown>
             b.input_tokens += item.input_tokens;
             b.output_tokens += item.output_tokens;
             b.cache_creation_tokens += item.cache_creation_tokens;
+            b.cache_creation_1h_tokens += item.cache_creation_1h_tokens;
             b.cache_read_tokens += item.cache_read_tokens;
             b.extra_total_tokens += item.extra_total_tokens;
             b.cost += item.cost;

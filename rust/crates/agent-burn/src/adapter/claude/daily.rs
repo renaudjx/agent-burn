@@ -474,6 +474,7 @@ impl DailyAccumulator {
             breakdown.input_tokens += entry.usage.input_tokens;
             breakdown.output_tokens += entry.usage.output_tokens;
             breakdown.cache_creation_tokens += entry.usage.cache_creation_token_count();
+            breakdown.cache_creation_1h_tokens += entry.usage.cache_creation_1h_token_count();
             breakdown.cache_read_tokens += entry.usage.cache_read_input_tokens;
             breakdown.cost += entry.cost;
             if entry.missing_pricing_model.is_some() {

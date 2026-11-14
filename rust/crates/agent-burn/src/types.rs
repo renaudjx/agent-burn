@@ -46,6 +46,11 @@ impl TokenUsageRaw {
             self.cache_creation_input_tokens
         }
     }
+
+    pub(crate) fn cache_creation_1h_token_count(&self) -> u64 {
+        self.cache_creation
+            .map_or(0, |b| b.ephemeral_1h_input_tokens)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -98,6 +103,9 @@ pub(crate) struct ModelBreakdown {
     pub(crate) output_tokens: u64,
     pub(crate) cache_creation_tokens: u64,
     pub(crate) cache_read_tokens: u64,
+    /// Subset of `cache_creation_tokens` written with the 1-hour TTL (billed at 2x input).
+    #[serde(skip_serializing)]
+    pub(crate) cache_creation_1h_tokens: u64,
     #[serde(skip_serializing)]
     pub(crate) extra_total_tokens: u64,
     pub(crate) cost: f64,
