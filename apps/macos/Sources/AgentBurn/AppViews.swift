@@ -339,9 +339,14 @@ private struct DashboardSidebar: View {
   @ViewBuilder private func cachedProfileBadge(_ profile: ClaudeProfile) -> some View {
     if let reading = profile.cachedWeeklyRemaining {
       let old = Date().timeIntervalSince(reading.observedAt) > 3600
+      let behind =
+        (evenPaceDelta(
+          remaining: reading.percent, resetsAt: reading.resetsAt, now: store.quotaCheckDate) ?? 0)
+        < -0.05
       let tone: Color =
         old ? .secondary
-        : reading.percent < 15 ? BurnTheme.behind : reading.percent < 35 ? .orange : .green
+        : reading.percent < 15 || behind
+          ? BurnTheme.behind : reading.percent < 35 ? .orange : .green
       Text(menuBarQuotaText(reading.percent))
         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
         .foregroundStyle(tone)
