@@ -64,7 +64,15 @@ struct ClaudeAccountView: View {
   private var weekly: Forecast? { store.forecast(for: "claude") }
   /// The newest saved session reading, kept after its window resets for the reset time.
   private var lastSession: Forecast? { store.forecast(for: claudeSessionQuotaAgent) }
-  private var session: Forecast? { lastSession.flatMap { $0.reset > now ? $0 : nil } }
+  /// Max plans have no 5-hour window: the live reading then carries no session meter.
+  private var hasSessionLimit: Bool {
+    guard let account else { return true }
+    return account.sessionUsedPercent != nil || account.sessionResetsAtMs != nil
+  }
+  private var session: Forecast? {
+    guard hasSessionLimit else { return nil }
+    return lastSession.flatMap { $0.reset > now ? $0 : nil }
+  }
   /// The report's status is only as new as the report; a live reading collected
   /// since then proves Claude Code renewed its sign-in.
   private var signInExpired: Bool {
@@ -82,7 +90,6 @@ struct ClaudeAccountView: View {
         tint: tint
       ) {
         HStack(spacing: 12) {
-          profilePicker
           if let price = plan?.pricePerMonth {
             Text(currency(price) + " / month").monospacedDigit()
           }
@@ -97,11 +104,13 @@ struct ClaudeAccountView: View {
       }
       if account != nil || weekly != nil || lastSession != nil {
         HStack(alignment: .top, spacing: 14) {
-          ClaudeLimitPanel(
-            title: "5-hour session", forecast: session,
-            samples: store.samples(for: claudeSessionQuotaAgent, range: .rte, now: now),
-            now: now, tint: tint, used: account?.sessionUsedPercent,
-            resetsAt: sessionReset, stale: signInExpired)
+          if hasSessionLimit {
+            ClaudeLimitPanel(
+              title: "5-hour session", forecast: session,
+              samples: store.samples(for: claudeSessionQuotaAgent, range: .rte, now: now),
+              now: now, tint: tint, used: account?.sessionUsedPercent,
+              resetsAt: sessionReset, stale: signInExpired)
+          }
           ClaudeLimitPanel(
             title: "Weekly", forecast: weekly,
             samples: store.samples(for: "claude", range: .rte, now: now),
@@ -121,21 +130,6 @@ struct ClaudeAccountView: View {
       }
     }
     .burnCard(padding: 18)
-  }
-
-  /// Which Claude Code profile's account and limits are shown; usage still covers every folder.
-  @ViewBuilder private var profilePicker: some View {
-    let profiles = store.claudeProfiles
-    if profiles.count > 1 {
-      let selection = Binding(
-        get: { profiles.contains { $0.path == store.claudeActiveDir } ? store.claudeActiveDir : profiles[0].path },
-        set: { store.claudeActiveDir = $0 })
-      Picker("Profile", selection: selection) {
-        ForEach(profiles) { Text($0.label(among: profiles)).tag($0.path) }
-      }
-      .pickerStyle(.menu).labelsHidden().fixedSize()
-      .help("Claude Code profile whose account and limits are shown")
-    }
   }
 
   private func freshness(_ forecast: Forecast) -> some View {
@@ -271,6 +265,8 @@ struct ClaudeLimitPanel: View {
       at: forecast.observedAt, samples: samples, forecast: forecast, range: .rte
     ).paceDelta
   }
+  /// Same threshold as the pace badge, so the number turns red when the badge does.
+  private var isBehindPace: Bool { (paceDelta ?? 0) < -0.05 }
   private var atRisk: Bool {
     forecast.map { $0.remaining <= 0 || $0.projectedEnd < $0.reset } ?? false
   }
@@ -295,6 +291,7 @@ struct ClaudeLimitPanel: View {
           HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(remaining.map(quotaPercentText) ?? "—")
               .font(.system(size: 40, weight: .semibold, design: .rounded)).monospacedDigit()
+              .foregroundStyle(isBehindPace ? BurnTheme.behind : .primary)
               .contentTransition(.numericText()).animation(.snappy, value: remaining)
             Text("left").font(.system(size: 14)).foregroundStyle(BurnTheme.muted)
           }

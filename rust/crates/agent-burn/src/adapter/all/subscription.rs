@@ -30,7 +30,7 @@ pub(super) struct ClaudeInput {
 
 /// A resolved monthly plan price.
 struct PlanInfo {
-    /// Known plan label (e.g. `Max 20×`); `None` for a raw price override.
+    /// Known plan label (e.g. `Ultra`); `None` for a raw price override.
     name: Option<String>,
     price: f64,
 }
@@ -991,20 +991,23 @@ pub(super) fn resolve_claude(
 fn resolve_claude_plan(spec: &str) -> Option<PlanInfo> {
     price_override(spec).or_else(|| match normalize(spec).as_str() {
         "pro" => known("Pro", 20.0),
-        "max" | "max5x" | "max5" => known("Max 5×", 100.0),
-        "max20x" | "max20" => known("Max 20×", 200.0),
+        // Since 30 October 2026 the $100 Max 5x plan is "Max" and the $200
+        // Max 20x plan is "Ultra"; the old names still select them.
+        "max" | "max5x" | "max5" => known("Max", 100.0),
+        "ultra" | "max20x" | "max20" => known("Ultra", 200.0),
         _ => None,
     })
 }
 
 /// Map a Claude account rate-limit tier (e.g. `default_claude_max_20x`) to a
-/// known plan and price.
+/// known plan and price. Account tiers keep the old `max_20x` / `max_5x`
+/// names of the plans now sold as Ultra and Max.
 fn resolve_claude_tier(tier: &str) -> Option<PlanInfo> {
     let tier = tier.to_ascii_lowercase();
-    if tier.contains("20x") {
-        known("Max 20×", 200.0)
+    if tier.contains("20x") || tier.contains("ultra") {
+        known("Ultra", 200.0)
     } else if tier.contains("5x") {
-        known("Max 5×", 100.0)
+        known("Max", 100.0)
     } else if tier.contains("max") {
         known("Max", 100.0)
     } else if tier.contains("pro") {
@@ -1155,7 +1158,7 @@ mod tests {
 
         let claude = &subscription.agents[1];
         assert_eq!(claude.agent, "claude");
-        assert_eq!(claude.plan_name.as_deref(), Some("Max 20×"));
+        assert_eq!(claude.plan_name.as_deref(), Some("Ultra"));
         assert_eq!(claude.price, Some(200.0));
         assert!(claude.live_limits);
         assert!(claude.window.is_some());

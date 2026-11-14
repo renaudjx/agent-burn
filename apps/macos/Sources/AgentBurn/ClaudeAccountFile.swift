@@ -1,10 +1,18 @@
+import CryptoKit
 import Foundation
 
 /// The newest Claude account meters, kept apart from the report cache so a
 /// restart, a source change or an expired Claude Code sign-in never blanks them.
+/// Each Claude Code profile has its own file, so one account's meters never stand in
+/// for another's; the default profile keeps the original file name.
 struct ClaudeAccountFile {
   let directory: URL
-  var url: URL { directory.appendingPathComponent("claude-account.json") }
+  var profile: String = ""
+  var url: URL {
+    guard !profile.isEmpty else { return directory.appendingPathComponent("claude-account.json") }
+    let hash = SHA256.hash(data: Data(profile.utf8)).map { String(format: "%02x", $0) }.joined()
+    return directory.appendingPathComponent("claude-account-\(hash.prefix(8)).json")
+  }
   private var backup: URL { url.appendingPathExtension("bak") }
 
   func load() -> ClaudeAccount? {

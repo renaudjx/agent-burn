@@ -40,7 +40,7 @@ struct AgentBurnApp: App {
     } label: {
       // TimelineView in a MenuBarExtra label can continuously invalidate the status item.
       MenuBarLabel(
-        remaining: store.remainingPercent, stale: store.quotaIsStale(at: store.quotaCheckDate))
+        readings: store.menuBarReadings, text: store.menuBarText)
     }
     .menuBarExtraStyle(.window)
     Settings { SettingsView().environment(store) }
@@ -60,17 +60,62 @@ struct UsageCommands: Commands {
   }
 }
 
+/// The status item: each limit tinted green ahead of an even pace and
+/// red behind it. Two accounts stack in two rows so they stay narrow. The text is
+/// drawn into an image, since the menu bar renders label text as a monochrome template.
 struct MenuBarLabel: View {
-  let remaining: Double?
-  var stale = false
+  let readings: [MenuBarReading]
+  let text: String
+  @Environment(\.colorScheme) private var scheme
+
+  // A MenuBarExtra label keeps a single image; the limits alone fill it, no logo.
   var body: some View {
-    HStack(spacing: 4) {
-      Image(nsImage: AppLogo.menuBar)
-        .resizable()
-        .renderingMode(.original)
-        .frame(width: 18, height: 18)
-      Text(menuBarQuotaText(remaining, stale: stale)).monospacedDigit()
-    }
-    .accessibilityLabel("Agent Burn \(menuBarQuotaText(remaining, stale: stale))")
+    Image(nsImage: rendered)
+      .accessibilityLabel("Agent Burn \(text)")
   }
+
+  private var rendered: NSImage {
+    let content = MenuBarValues(readings: readings, scheme: scheme)
+    let renderer = ImageRenderer(content: content)
+    renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+    let image = renderer.nsImage ?? NSImage()
+    image.isTemplate = false
+    return image
+  }
+}
+
+private struct MenuBarValues: View {
+  let readings: [MenuBarReading]
+  let scheme: ColorScheme
+  private var neutral: Color { scheme == .dark ? .white : .black }
+
+  var body: some View {
+    let stacked = readings.count > 1
+    // The store keeps at most two accounts, one per row of the menu bar's height.
+    VStack(alignment: .trailing, spacing: -1) {
+      ForEach(readings.indices, id: \.self) { index in
+        value(readings[index], size: stacked ? 9 : 13)
+      }
+    }
+    .fixedSize()
+    .environment(\.colorScheme, scheme)
+  }
+
+  /// The value stays in the menu bar's text color; a dot before it gives the pace,
+  /// green ahead and red behind, and stays empty when the pace is unknown.
+  private func value(_ reading: MenuBarReading, size: CGFloat) -> some View {
+    let dot: Color =
+      switch reading.isBehind {
+      case true?: Color(red: 1, green: 0.3, blue: 0.28)
+      case false?: Color(red: 0.25, green: 0.82, blue: 0.4)
+      case nil: .clear
+      }
+    return HStack(spacing: 3) {
+      Circle().fill(dot).frame(width: size * 0.55, height: size * 0.55)
+      Text(reading.remaining.map { "\(Int($0))%" } ?? "–")
+        .font(.system(size: size, weight: .regular)).monospacedDigit()
+        .foregroundStyle(neutral)
+    }
+  }
+
 }

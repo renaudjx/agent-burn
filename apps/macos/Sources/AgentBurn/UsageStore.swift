@@ -62,9 +62,13 @@ final class UsageStore {
     didSet {
       guard oldValue != claudeActiveDir else { return }
       defaults.set(claudeActiveDir, forKey: "claudeActiveDir")
-      storedClaudeAccount = nil
+      storedClaudeAccount = claudeAccountFile.load()
       // The mix belongs to the previous profile until its own report arrives.
       reports["claude"]?.usageMix = nil
+      // Drop the previous profile's report at once, then read the picked one's plan and
+      // limits, even when a refresh already running would skip a second one.
+      queueSummary(force: true)
+      Task { await refreshAll() }
     }
   }
   var claudeProfiles: [ClaudeProfile] { ClaudeProfile.list(claudeConfigDirs) }
@@ -77,6 +81,67 @@ final class UsageStore {
   var quotaSource: QuotaSource {
     didSet { defaults.set(quotaSource.rawValue, forKey: "quotaSource") }
   }
+  /// Menu bar entries in their chosen order, comma-separated ids; see `menuBarEntries`.
+  var menuBarOrder: String { didSet { defaults.set(menuBarOrder, forKey: "menuBarOrder") } }
+  /// Ids of the entries switched on for the menu bar; nil until first set, when the
+  /// quota source decides.
+  var menuBarShown: String? { didSet { defaults.set(menuBarShown, forKey: "menuBarShown") } }
+
+  /// The menu bar fits two limits, one per row.
+  static let menuBarLimit = 2
+
+  /// Every limit the menu bar can show: Codex, Cursor, and Claude, split into one
+  /// entry per account when several profiles are set. Saved order first, new ones after.
+  var menuBarEntries: [MenuBarEntry] {
+    let profiles = claudeProfiles
+    let claude: [MenuBarEntry] =
+      profiles.count > 1
+      ? profiles.map {
+        MenuBarEntry(id: "claude@" + $0.path, label: "Claude · " + $0.label(among: profiles))
+      }
+      : [MenuBarEntry(id: "claude", label: "Claude")]
+    let all =
+      [MenuBarEntry(id: "codex", label: "Codex")] + claude
+      + [MenuBarEntry(id: "cursor", label: "Cursor")]
+    let saved = menuBarOrder.split(separator: ",").map(String.init)
+    let rank = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+    return all.enumerated().sorted {
+      (rank[$0.element.id] ?? saved.count + $0.offset) < (rank[$1.element.id] ?? saved.count + $1.offset)
+    }.map(\.element)
+  }
+
+  func showsInMenuBar(_ entry: MenuBarEntry) -> Bool {
+    guard let shown = menuBarShown else {
+      // Before any choice, the quota source fills the menu bar, all its accounts for Claude.
+      return entry.id == quotaSource.rawValue || entry.id.hasPrefix(quotaSource.rawValue + "@")
+    }
+    return shown.split(separator: ",").map(String.init).contains(entry.id)
+  }
+
+  func setShowsInMenuBar(_ entry: MenuBarEntry, _ shown: Bool) {
+    var ids = menuBarEntries.filter(showsInMenuBar).map(\.id).filter { $0 != entry.id }
+    if shown { ids.append(entry.id) }
+    menuBarShown = ids.joined(separator: ",")
+  }
+
+  func moveMenuBarEntryUp(_ entry: MenuBarEntry) {
+    var ids = menuBarEntries.map(\.id)
+    guard let index = ids.firstIndex(of: entry.id), index > 0 else { return }
+    ids.swapAt(index, index - 1)
+    menuBarOrder = ids.joined(separator: ",")
+  }
+
+  /// The entries in the menu bar: the first two switched on, or the quota source when
+  /// none is, so the item is never empty.
+  var menuBarDisplayed: [MenuBarEntry] {
+    let shown = menuBarEntries.filter(showsInMenuBar).prefix(Self.menuBarLimit)
+    guard shown.isEmpty else { return Array(shown) }
+    return Array(
+      menuBarEntries.filter {
+        $0.id == quotaSource.rawValue || $0.id.hasPrefix(quotaSource.rawValue + "@")
+      }.prefix(1))
+  }
+
   var quotaChartRange: QuotaChartRange {
     didSet { defaults.set(quotaChartRange.rawValue, forKey: "quotaChartRange") }
   }
@@ -97,6 +162,14 @@ final class UsageStore {
   private let cacheURL: URL
   private var cache: ReportCache?
   private var storedClaudeAccount: ClaudeAccount?
+  /// The active profile's saved meters; with one profile, the shared default file.
+  private var claudeAccountFile: ClaudeAccountFile {
+    let profiles = claudeProfiles
+    let active =
+      profiles.count > 1
+      ? (profiles.first { $0.path == claudeActiveDir } ?? profiles[0]).path : ""
+    return ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent(), profile: active)
+  }
   private var archive = MetricsArchive()
   private var archiveWritable = true
   var archiveURL: URL {
@@ -135,8 +208,13 @@ final class UsageStore {
         inherited: ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"])
     claudeActiveDir = defaults.string(forKey: "claudeActiveDir") ?? ""
     offline = defaults.bool(forKey: "offline")
-    refreshMinutes = max(1, defaults.integer(forKey: "refreshMinutes"))
+    // Each refresh rescans every agent log, so short intervals are opt-in, not the default.
+    refreshMinutes =
+      defaults.object(forKey: "refreshMinutes") == nil
+      ? 15 : max(1, defaults.integer(forKey: "refreshMinutes"))
     quotaSource = QuotaSource(rawValue: defaults.string(forKey: "quotaSource") ?? "") ?? .codex
+    menuBarOrder = defaults.string(forKey: "menuBarOrder") ?? ""
+    menuBarShown = defaults.string(forKey: "menuBarShown")
     quotaChartRange =
       QuotaChartRange(rawValue: defaults.string(forKey: "quotaChartRange") ?? "") ?? .rte
     cursorQuotaChartRange = .rtd
@@ -166,7 +244,7 @@ final class UsageStore {
         updated[agent] = saved.date
       }
     }
-    storedClaudeAccount = ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent()).load()
+    storedClaudeAccount = claudeAccountFile.load()
     rememberClaudeAccount(
       latestClaudeAccount(cache?.summaries.values.compactMap(\.report.claudeAccount) ?? []))
     do {
@@ -187,6 +265,25 @@ final class UsageStore {
     }
     reloadQuotas()
     publishSummary()
+  }
+
+  /// Same as `reloadQuotas`, but decodes the multi-megabyte archive off the main
+  /// thread so the window never stops responding while the collector writes it.
+  func reloadQuotasInBackground() async {
+    let file = QuotaHistoryFile(directory: cacheURL.deletingLastPathComponent())
+    let date = try? file.url.resourceValues(forKeys: [.contentModificationDateKey])
+      .contentModificationDate
+    if let date, date == quotaFileDate { return }
+    let loaded = await Task.detached(priority: .utility) { Result { try file.load() } }.value
+    switch loaded {
+    case .success(let saved):
+      if let saved { quotaHistory = saved }
+      quotaFileDate = date
+      errors["quotaHistory"] = nil
+    case .failure:
+      errors["quotaHistory"] =
+        "Quota history could not be read. The last available readings are preserved."
+    }
   }
 
   func reloadQuotas() {
@@ -240,7 +337,7 @@ final class UsageStore {
     while !Task.isCancelled {
       quotaCheckDate = .now
       configureQuotaCollector()
-      reloadQuotas()
+      await reloadQuotasInBackground()
       let backgroundEnabled = defaults.object(forKey: "backgroundQuotas") as? Bool != false
       let status = QuotaService.service.status
       if status == .enabled {
@@ -259,7 +356,7 @@ final class UsageStore {
   }
 
   func refreshQuotasIfNeeded(backgroundAvailable: Bool, now: Date = .now) async {
-    reloadQuotas()
+    await reloadQuotasInBackground()
     let sourceChanged = collectedQuotaSource != quotaSourceKey
     let retryDue = now.timeIntervalSince(quotaCollectionDate ?? .distantPast) >= 60
     // Registration is not evidence of successful collection: launchd can stay
@@ -302,7 +399,7 @@ final class UsageStore {
         errors["quotaCollector"] =
           "Quota collection could not save its readings. Existing history is preserved."
       }
-      reloadQuotas()
+      await reloadQuotasInBackground()
       quotaCheckDate = .now
       force = pendingForcedCollection
     } while force
@@ -340,12 +437,11 @@ final class UsageStore {
       let executable = try CLIClient.executable(customPath: customPath)
       let useOffline = offline
       // Quota collection is independent; these reports provide spend details.
-      await withTaskGroup(of: Void.self) { group in
-        for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
-          group.addTask {
-            await self.loadHarness(agent, executable: executable, offline: useOffline)
-          }
-        }
+      // Every report rescans all agent logs, so run them one after another, never at once:
+      // parallel scans used several gigabytes of RAM and every core, freezing the Mac.
+      await summaries?.value
+      for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
+        await loadHarness(agent, executable: executable, offline: useOffline)
       }
     } catch {
       for agent in ["codex", "claude"] where selectedAgent == nil || selectedAgent == agent {
@@ -490,6 +586,67 @@ final class UsageStore {
       period: period, knownDates: Array(dates), resetStart: resetStartDate)
   }
 
+  /// The active profile among two or more; nil with a single profile.
+  var activeClaudeProfile: ClaudeProfile? {
+    let profiles = claudeProfiles
+    guard profiles.count > 1 else { return nil }
+    return profiles.first { $0.path == claudeActiveDir } ?? profiles[0]
+  }
+
+  /// A profile's weekly limit left: live for the active one, else its last cached reading.
+  func claudeRemaining(for profile: ClaudeProfile) -> Double? {
+    guard profile.path != activeClaudeProfile?.path else {
+      return remainingQuota(
+        for: .claude, forecast: forecast(for: "claude"),
+        cursorAccount: summary?.cursorAccount, claudeAccount: summary?.claudeAccount)
+    }
+    return profile.cachedWeeklyRemaining?.percent
+  }
+
+  /// One reading per menu bar entry: live for Codex, Cursor and the active Claude
+  /// profile, the last cached reading for another Claude profile.
+  var menuBarReadings: [MenuBarReading] {
+    menuBarDisplayed.map { entry in
+      if entry.id.hasPrefix("claude@") {
+        let path = String(entry.id.dropFirst("claude@".count))
+        guard let profile = claudeProfiles.first(where: { $0.path == path }) else {
+          return MenuBarReading(remaining: nil, pace: nil)
+        }
+        let remaining = claudeRemaining(for: profile)
+        if path == activeClaudeProfile?.path {
+          return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, "claude"))
+        }
+        let cached = profile.cachedWeeklyRemaining
+        return MenuBarReading(
+          remaining: remaining,
+          pace: cached.flatMap {
+            evenPaceDelta(remaining: $0.percent, resetsAt: $0.resetsAt, now: quotaCheckDate)
+          })
+      }
+      guard let source = QuotaSource(rawValue: entry.id) else {
+        return MenuBarReading(remaining: nil, pace: nil)
+      }
+      let remaining = remainingQuota(
+        for: source, forecast: forecast(for: source.rawValue),
+        cursorAccount: summary?.cursorAccount, claudeAccount: summary?.claudeAccount)
+      return MenuBarReading(remaining: remaining, pace: menuBarPace(remaining, source.rawValue))
+    }
+  }
+
+  var menuBarText: String {
+    menuBarReadings.map { $0.remaining.map { "\(Int($0))%" } ?? "–" }.joined(separator: " / ")
+      + (quotaIsStale(at: quotaCheckDate) ? " · stale" : "")
+  }
+
+  /// Remaining now minus an even pace, from the live forecast like the limit panels.
+  private func menuBarPace(_ remaining: Double?, _ agent: String) -> Double? {
+    guard remaining != nil, agent != "cursor", let forecast = forecast(for: agent) else { return nil }
+    return quotaChartReading(
+      at: forecast.observedAt, samples: samples(for: agent, range: .rte, now: quotaCheckDate),
+      forecast: forecast, range: .rte
+    ).paceDelta
+  }
+
   var remainingPercent: Double? {
     remainingQuota(
       for: quotaSource, forecast: forecast(for: quotaSource.rawValue),
@@ -548,7 +705,7 @@ final class UsageStore {
     else { return }
     storedClaudeAccount = account
     do {
-      try ClaudeAccountFile(directory: cacheURL.deletingLastPathComponent()).save(account)
+      try claudeAccountFile.save(account)
       errors["claudeAccount"] = nil
     } catch {
       errors["claudeAccount"] =
@@ -581,4 +738,25 @@ final class UsageStore {
     return resets(for: agent).last?.date ?? forecast(for: agent)?.start
   }
 
+}
+
+struct MenuBarReading: Equatable {
+  let remaining: Double?
+  /// Remaining minus an even pace until reset; negative means behind.
+  let pace: Double?
+  var isBehind: Bool? { pace.map { $0 < -0.05 } }
+}
+
+/// Remaining minus the share of a weekly window still to run, for a reading with
+/// no history to chart.
+func evenPaceDelta(remaining: Double, resetsAt: Date?, now: Date) -> Double? {
+  guard let resetsAt else { return nil }
+  let week: TimeInterval = 7 * 24 * 3600
+  let left = min(max(resetsAt.timeIntervalSince(now), 0), week)
+  return remaining - 100 * left / week
+}
+
+struct MenuBarEntry: Identifiable, Equatable {
+  let id: String
+  let label: String
 }

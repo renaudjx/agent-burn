@@ -75,25 +75,44 @@ struct MenuPopover: View {
 }
 
 private struct PopoverTabs: View {
+  @Environment(UsageStore.self) private var store
   @Binding var selection: String
   @Namespace private var pill
-  private let tabs: [(id: String, label: String)] = [
-    ("summary", "General"), ("codex", "Codex"), ("claude", "Claude"), ("cursor", "Cursor"),
-  ]
+  /// With several Claude profiles, one tab per account replaces the single Claude tab;
+  /// its id carries the profile folder after `claude@`.
+  private var tabs: [(id: String, label: String)] {
+    let claude: [(id: String, label: String)] =
+      store.activeClaudeProfile == nil
+      ? [("claude", "Claude")]
+      : store.claudeProfiles.map { ("claude@" + $0.path, $0.shortName) }
+    return [("summary", "General"), ("codex", "Codex")] + claude + [("cursor", "Cursor")]
+  }
+  private func isActive(_ id: String) -> Bool {
+    guard id.hasPrefix("claude@") else { return selection == id }
+    return selection == "claude" && id == "claude@" + (store.activeClaudeProfile?.path ?? "")
+  }
+  private func select(_ id: String) {
+    if id.hasPrefix("claude@") {
+      store.claudeActiveDir = String(id.dropFirst("claude@".count))
+      selection = "claude"
+    } else {
+      selection = id
+    }
+  }
   var body: some View {
     HStack(spacing: 2) {
       ForEach(tabs, id: \.id) { tab in
-        let active = selection == tab.id
+        let active = isActive(tab.id)
         Button {
-          withAnimation(.snappy(duration: 0.28)) { selection = tab.id }
+          withAnimation(.snappy(duration: 0.28)) { select(tab.id) }
         } label: {
           HStack(spacing: 5) {
             if tab.id == "summary" {
               Image(systemName: "square.grid.2x2").font(.system(size: 10, weight: .semibold))
             } else {
-              HarnessIcon(agent: tab.id, size: 13)
+              HarnessIcon(agent: tab.id.hasPrefix("claude@") ? "claude" : tab.id, size: 13)
             }
-            Text(tab.label)
+            Text(tab.label).lineLimit(1).truncationMode(.tail)
           }
           .font(.system(size: 12, weight: active ? .semibold : .medium))
           .foregroundStyle(active ? BurnTheme.ink : BurnTheme.quotaMuted)
@@ -209,8 +228,33 @@ private struct DashboardSidebar: View {
   private var others: [String] {
     store.knownAgents.filter { !subscriptions.contains($0) }
   }
+  private static let profilePrefix = "claude@"
+  /// One sidebar row per Claude Code profile once more than one is configured.
+  private var claudeProfiles: [ClaudeProfile] {
+    let profiles = store.claudeProfiles
+    return profiles.count > 1 ? profiles : []
+  }
+  private var activeClaudePath: String? {
+    claudeProfiles.first { $0.path == store.claudeActiveDir }?.path ?? claudeProfiles.first?.path
+  }
+  /// A profile row selects the Claude view and makes that profile the one whose limits are shown.
   private var selection: Binding<String?> {
-    Binding(get: { store.selection }, set: { if let value = $0 { store.selection = value } })
+    Binding(
+      get: {
+        if store.selection == "claude", let path = activeClaudePath {
+          return Self.profilePrefix + path
+        }
+        return store.selection
+      },
+      set: { value in
+        guard let value else { return }
+        if value.hasPrefix(Self.profilePrefix) {
+          store.claudeActiveDir = String(value.dropFirst(Self.profilePrefix.count))
+          store.selection = "claude"
+        } else {
+          store.selection = value
+        }
+      })
   }
 
   var body: some View {
@@ -222,10 +266,25 @@ private struct DashboardSidebar: View {
       }
       Section("Subscriptions") {
         ForEach(subscriptions, id: \.self) { agent in
-          row(id: agent, title: harnessName(agent)) {
-            HarnessIcon(agent: agent, size: 20)
-          } trailing: {
-            quotaBadge(agent)
+          if agent == "claude" && !claudeProfiles.isEmpty {
+            ForEach(claudeProfiles) { profile in
+              row(id: Self.profilePrefix + profile.path, title: profile.label(among: claudeProfiles)) {
+                HarnessIcon(agent: agent, size: 20)
+              } trailing: {
+                if profile.path == activeClaudePath {
+                  quotaBadge(agent)
+                } else {
+                  cachedProfileBadge(profile)
+                }
+              }
+              .help(profile.path)
+            }
+          } else {
+            row(id: agent, title: harnessName(agent)) {
+              HarnessIcon(agent: agent, size: 20)
+            } trailing: {
+              quotaBadge(agent)
+            }
           }
         }
       }
@@ -264,6 +323,41 @@ private struct DashboardSidebar: View {
     }
   }
 
+  /// Below an even pace until reset, as the limit panel's pace badge shows it.
+  private func isBehindPace(_ agent: String) -> Bool {
+    guard agent != "cursor", let forecast = store.forecast(for: agent) else { return false }
+    let now = store.quotaCheckDate
+    let delta = quotaChartReading(
+      at: forecast.observedAt, samples: store.samples(for: agent, range: .rte, now: now),
+      forecast: forecast, range: .rte
+    ).paceDelta
+    return (delta ?? 0) < -0.05
+  }
+
+  /// Live limits are read for the active profile only; the others show the weekly
+  /// limit from their last cached reading, dimmed once it is over an hour old.
+  @ViewBuilder private func cachedProfileBadge(_ profile: ClaudeProfile) -> some View {
+    if let reading = profile.cachedWeeklyRemaining {
+      let old = Date().timeIntervalSince(reading.observedAt) > 3600
+      let behind =
+        (evenPaceDelta(
+          remaining: reading.percent, resetsAt: reading.resetsAt, now: store.quotaCheckDate) ?? 0)
+        < -0.05
+      let tone: Color =
+        old ? .secondary
+        : reading.percent < 15 || behind
+          ? BurnTheme.behind : reading.percent < 35 ? .orange : .green
+      Text(menuBarQuotaText(reading.percent))
+        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+        .foregroundStyle(tone)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(tone.opacity(0.14), in: Capsule())
+        .help(
+          "Weekly limit left, read \(reading.observedAt.formatted(.relative(presentation: .named)))"
+        )
+    }
+  }
+
   @ViewBuilder private func quotaBadge(_ agent: String) -> some View {
     if let source = QuotaSource(rawValue: agent),
       let remaining = remainingQuota(
@@ -271,7 +365,8 @@ private struct DashboardSidebar: View {
         cursorAccount: store.summary?.cursorAccount,
         claudeAccount: store.summary?.claudeAccount)
     {
-      let tone: Color = remaining < 15 ? BurnTheme.behind : remaining < 35 ? .orange : .green
+      let tone: Color =
+        remaining < 15 || isBehindPace(agent) ? BurnTheme.behind : remaining < 35 ? .orange : .green
       Text(menuBarQuotaText(remaining))
         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
         .foregroundStyle(tone)
@@ -327,13 +422,37 @@ struct QuotaSourceSettings: View {
   var body: some View {
     @Bindable var store = store
     Section("Menu bar quota") {
-      Picker("Show remaining", selection: $store.quotaSource) {
+      Picker("Toolbar", selection: $store.quotaSource) {
         ForEach(QuotaSource.allCases) { source in
           Text(source.label).tag(source)
         }
       }
       Text(
-        "The flame in the menu bar and the window toolbar show this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
+        "The window toolbar shows this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
+      )
+      .font(.caption).foregroundStyle(.secondary)
+      let entries = store.menuBarEntries
+      let shownCount = entries.filter(store.showsInMenuBar).count
+      ForEach(entries) { entry in
+        let shown = store.showsInMenuBar(entry)
+        HStack {
+          Button {
+            store.moveMenuBarEntryUp(entry)
+          } label: {
+            Image(systemName: "arrow.up")
+          }
+          .buttonStyle(.borderless)
+          .disabled(entry == entries.first)
+          .help("Move up")
+          Toggle(
+            entry.label,
+            isOn: Binding(get: { shown }, set: { store.setShowsInMenuBar(entry, $0) })
+          )
+          .disabled(!shown && shownCount >= UsageStore.menuBarLimit)
+        }
+      }
+      Text(
+        "The menu bar shows two limits at most, top to bottom in this order. The dot is green while a limit is ahead of an even pace until its reset and red when it falls behind. A Claude account that is not active shows its last cached reading."
       )
       .font(.caption).foregroundStyle(.secondary)
     }

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct SummaryQuery: Equatable {
@@ -68,10 +69,49 @@ struct ClaudeProfile: Identifiable, Equatable {
     return URL(fileURLWithPath: path).lastPathComponent
   }
 
+  /// The part of the e-mail before `@`, short enough for a tab.
+  var shortName: String {
+    name.split(separator: "@").first.map(String.init) ?? name
+  }
+
   /// `name`, plus the folder when another profile shares it (two folders signed in to one account).
   func label(among profiles: [ClaudeProfile]) -> String {
     guard profiles.filter({ $0.name == name }).count > 1 else { return name }
     return "\(name) (\(URL(fileURLWithPath: path).lastPathComponent))"
+  }
+
+  /// The weekly limit left in the last reading the CLI cached for this profile, read
+  /// whether or not the profile is active, with the time it was taken.
+  var cachedWeeklyRemaining: (percent: Double, observedAt: Date, resetsAt: Date?)? {
+    let hash = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
+    let cacheDir = ProcessInfo.processInfo.environment["AGENT_BURN_CACHE_DIR"].map {
+      URL(fileURLWithPath: $0)
+    } ?? FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Caches/agent-burn")
+    let file = cacheDir.appendingPathComponent("claude-usage-\(hash.prefix(8)).json")
+    guard let data = try? Data(contentsOf: file),
+      let cache = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let fetchedAt = cache["fetchedAt"] as? Double
+    else { return nil }
+    let rawBody = cache["body"]
+    let body =
+      (rawBody as? [String: Any])
+      ?? (rawBody as? String).flatMap {
+        try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+      }
+    guard let body else { return nil }
+    let limits = body["limits"] as? [[String: Any]] ?? []
+    let weekly = limits.first { $0["kind"] as? String == "weekly_all" }
+    let sevenDay = body["seven_day"] as? [String: Any]
+    let used = (weekly?["percent"] as? Double) ?? (sevenDay?["utilization"] as? Double)
+    guard let used else { return nil }
+    let resetText = (weekly?["resets_at"] as? String) ?? (sevenDay?["resets_at"] as? String)
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let resetsAt = resetText.flatMap {
+      parser.date(from: $0) ?? ISO8601DateFormatter().date(from: $0)
+    }
+    return (max(0, 100 - used), Date(timeIntervalSince1970: fetchedAt / 1000), resetsAt)
   }
 
   /// Folders as the user typed them, tildes expanded, empty entries and repeats dropped.

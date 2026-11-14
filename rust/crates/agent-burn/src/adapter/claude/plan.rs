@@ -48,9 +48,16 @@ fn plan_tier_from_account(account: &Value) -> Option<String> {
         account
             .get(key)
             .and_then(Value::as_str)
-            .filter(|tier| !tier.is_empty())
+            .filter(|tier| names_a_plan(tier))
     })
     .map(str::to_string)
+}
+
+/// A Pro account's rate-limit tier is `default_claude_ai`, which names no
+/// plan, so the lookup goes on to `organizationType` (`claude_pro`).
+fn names_a_plan(tier: &str) -> bool {
+    let tier = tier.to_ascii_lowercase();
+    tier.contains("max") || tier.contains("pro")
 }
 
 #[cfg(test)]
@@ -79,6 +86,12 @@ mod tests {
             plan_tier_from_account(&user_first).as_deref(),
             Some("default_claude_pro")
         );
+
+        let pro = json!({
+            "organizationRateLimitTier": "default_claude_ai",
+            "organizationType": "claude_pro",
+        });
+        assert_eq!(plan_tier_from_account(&pro).as_deref(), Some("claude_pro"));
 
         let org_type_only = json!({ "organizationType": "claude_max" });
         assert_eq!(

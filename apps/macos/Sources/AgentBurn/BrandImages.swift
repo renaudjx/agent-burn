@@ -1,12 +1,6 @@
 import AppKit
 
 @MainActor enum AppLogo {
-  static let menuBar: NSImage = {
-    let image = window.copy() as! NSImage
-    image.size = NSSize(width: 18, height: 18)
-    return image
-  }()
-
   static let window: NSImage = {
     let resources =
       Bundle.main.url(forResource: "AgentBurn_AgentBurn", withExtension: "bundle")
