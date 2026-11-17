@@ -13,7 +13,7 @@ struct MenuPopover: View {
           .frame(width: 26, height: 26).accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 1) {
           Text("Agent Burn").font(.system(size: 13, weight: .semibold))
-          Text(store.quotaSource.label + " " + menuBarQuotaText(store.remainingPercent))
+          Text(store.menuBarText)
             .font(.system(size: 11)).foregroundStyle(BurnTheme.quotaMuted).monospacedDigit()
         }
         Spacer()
@@ -194,9 +194,6 @@ struct DashboardView: View {
     .frame(minWidth: 980, minHeight: 650)
     .tint(BurnTheme.flame)
     .toolbar {
-      ToolbarItem(placement: .navigation) {
-        QuotaSourceMenu()
-      }
       ToolbarItem(placement: .primaryAction) {
         PeriodPicker(width: 130).help("Spend period")
       }
@@ -374,46 +371,6 @@ private struct DashboardSidebar: View {
         .background(tone.opacity(0.14), in: Capsule())
         .help("\(source.label) quota remaining")
     }
-  }
-}
-
-struct QuotaSourceMenu: View {
-  @Environment(UsageStore.self) private var store
-  var body: some View {
-    @Bindable var store = store
-    Menu {
-      ForEach(QuotaSource.allCases) { source in
-        Button {
-          store.quotaSource = source
-        } label: {
-          HStack {
-            Text(source.label)
-            Spacer()
-            if let remaining = remainingQuota(
-              for: source, forecast: store.forecast(for: source.rawValue),
-              cursorAccount: store.summary?.cursorAccount,
-              claudeAccount: store.summary?.claudeAccount)
-            {
-              Text(menuBarQuotaText(remaining))
-            }
-          }
-        }
-      }
-    } label: {
-      Text(
-        menuBarQuotaText(
-          store.remainingPercent, stale: store.quotaIsStale(at: store.quotaCheckDate))
-      )
-      .monospacedDigit()
-      .fontWeight(.medium)
-      .fixedSize()
-    }
-    .menuIndicator(.visible)
-    .fixedSize()
-    .id(store.remainingPercent ?? -1)
-    .help("Quota shown in the menu bar")
-    .accessibilityLabel(
-      "\(store.quotaSource.label) \(menuBarQuotaText(store.remainingPercent))")
   }
 }
 
