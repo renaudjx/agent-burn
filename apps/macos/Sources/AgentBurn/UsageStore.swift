@@ -78,6 +78,7 @@ final class UsageStore {
   }
   var offline: Bool { didSet { defaults.set(offline, forKey: "offline") } }
   var refreshMinutes: Int { didSet { defaults.set(refreshMinutes, forKey: "refreshMinutes") } }
+  /// The menu bar entry switched on before any choice is made in Settings.
   var quotaSource: QuotaSource {
     didSet { defaults.set(quotaSource.rawValue, forKey: "quotaSource") }
   }
@@ -131,15 +132,19 @@ final class UsageStore {
     menuBarOrder = ids.joined(separator: ",")
   }
 
-  /// The entries in the menu bar: the first two switched on, or the quota source when
+  /// The entries in the menu bar: the first two switched on, or the first entry when
   /// none is, so the item is never empty.
   var menuBarDisplayed: [MenuBarEntry] {
     let shown = menuBarEntries.filter(showsInMenuBar).prefix(Self.menuBarLimit)
-    guard shown.isEmpty else { return Array(shown) }
-    return Array(
-      menuBarEntries.filter {
-        $0.id == quotaSource.rawValue || $0.id.hasPrefix(quotaSource.rawValue + "@")
-      }.prefix(1))
+    return shown.isEmpty ? Array(menuBarEntries.prefix(1)) : Array(shown)
+  }
+
+  /// The provider of the menu bar's top entry, which the popover header and the
+  /// stale marker follow.
+  var primaryQuotaSource: QuotaSource {
+    menuBarDisplayed.first.flatMap {
+      QuotaSource(rawValue: String($0.id.split(separator: "@").first ?? ""))
+    } ?? quotaSource
   }
 
   var quotaChartRange: QuotaChartRange {
@@ -649,7 +654,7 @@ final class UsageStore {
 
   var remainingPercent: Double? {
     remainingQuota(
-      for: quotaSource, forecast: forecast(for: quotaSource.rawValue),
+      for: primaryQuotaSource, forecast: forecast(for: primaryQuotaSource.rawValue),
       cursorAccount: summary?.cursorAccount, claudeAccount: summary?.claudeAccount)
   }
 
@@ -734,7 +739,7 @@ final class UsageStore {
   }
 
   var resetStartDate: Date? {
-    let agent = selection == "summary" ? quotaSource.rawValue : selection
+    let agent = selection == "summary" ? primaryQuotaSource.rawValue : selection
     return resets(for: agent).last?.date ?? forecast(for: agent)?.start
   }
 
