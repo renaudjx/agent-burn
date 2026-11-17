@@ -422,15 +422,6 @@ struct QuotaSourceSettings: View {
   var body: some View {
     @Bindable var store = store
     Section("Menu bar quota") {
-      Picker("Toolbar", selection: $store.quotaSource) {
-        ForEach(QuotaSource.allCases) { source in
-          Text(source.label).tag(source)
-        }
-      }
-      Text(
-        "The window toolbar shows this remaining percentage. Codex uses the live weekly account meter, Claude uses its weekly limit, and Cursor uses promotional credits while those remain, otherwise the included allowance."
-      )
-      .font(.caption).foregroundStyle(.secondary)
       let entries = store.menuBarEntries
       let shownCount = entries.filter(store.showsInMenuBar).count
       ForEach(entries) { entry in
